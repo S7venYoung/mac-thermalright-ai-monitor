@@ -16,3 +16,10 @@ xcuserdata/
 # Local / private
 *.log
 img/*.HEIC
+
+# Idea
+.idea
+
+# AI IDE
+.mimocode
+.workbuddy

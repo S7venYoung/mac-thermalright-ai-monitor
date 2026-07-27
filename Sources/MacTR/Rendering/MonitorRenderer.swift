@@ -12,6 +12,7 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
 
     private let collector = SystemMetricsCollector()
     private let agentCollector = AgentUsageCollector()
+    private let tokenCollector = TokenUsageCollector()
 
     // Background metrics collection — decoupled from frame loop for consistent refresh
     private let metricsQueue = DispatchQueue(label: "com.thermalvision.metrics")
@@ -24,6 +25,15 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
     private var _temp: TemperatureSnapshot?
     private var _agents: AgentsSnapshot?
     private var _sys: SystemSnapshot?
+    private var _disk: DiskSnapshot?
+    private var _diskIO: DiskIOSnapshot?
+    private var _network: NetworkSnapshot?
+    private var _tokenUsage: TokenUsageSnapshot?
+
+    // Panel rotation
+    private var currentMiddlePanel = 0
+    private var lastPanelSwitch = Date()
+    private let rotationInterval: TimeInterval = 30
 
     // Reusable CGContext — avoids allocating 3.6MB every 0.5s (prevents CG raster data leak)
     private var reusableCtx: CGContext?
@@ -63,9 +73,15 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
         let temp = collector.collectTemperature()
         let agents = agentCollector.collect()
         let sys = collector.collectSystem()
+        let disk = collector.collectDisk()
+        let diskIO = collector.collectDiskIO()
+        let network = collector.collectNetwork()
+        let tokenUsage = tokenCollector.collect()
         lock.lock()
         _cpu = cpu0; _mem = mem
         _temp = temp; _agents = agents; _sys = sys
+        _disk = disk; _diskIO = diskIO; _network = network
+        _tokenUsage = tokenUsage.isEmpty ? nil : tokenUsage
         lock.unlock()
 
         // Second pass: get real CPU deltas
@@ -84,6 +100,18 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
         metricsRunning = false
     }
 
+    /// Returns the current middle panel index (0=Agents, 1=Disk·Network, 2=TokenUsage).
+    /// Advances one slot every `rotationInterval` seconds.
+    private func resolveMiddlePanel() -> Int {
+        let elapsed = Date().timeIntervalSince(lastPanelSwitch)
+        if elapsed >= rotationInterval {
+            let steps = Int(elapsed / rotationInterval)
+            currentMiddlePanel = (currentMiddlePanel + steps) % 3
+            lastPanelSwitch = lastPanelSwitch.addingTimeInterval(Double(steps) * rotationInterval)
+        }
+        return currentMiddlePanel
+    }
+
     /// True when a column has a live animation (breathing while working, or the
     /// done/waiting blink) — the frame loop uses this to raise the LCD frame rate
     /// only while something is actually moving, and idle low otherwise.
@@ -99,6 +127,7 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
     private func metricsLoop() {
         log("[Metrics] Loop started on metricsQueue")
         var slowTick = 0
+        var tokenTick = 0
         while metricsRunning {
             // Fast metrics every tick
             let cpu = collector.collectCPU()
@@ -112,11 +141,27 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
             if slowTick >= 4 {
                 let temp = collector.collectTemperature()
                 let agents = agentCollector.collect()
+                let disk = collector.collectDisk()
+                let diskIO = collector.collectDiskIO()
+                let network = collector.collectNetwork()
                 let sys = collector.collectSystem()
                 lock.lock()
                 _temp = temp; _agents = agents; _sys = sys
+                _disk = disk; _diskIO = diskIO; _network = network
                 lock.unlock()
                 slowTick = 0
+            }
+
+            // Token usage every 6th tick (~3s, tokscale takes ~1s)
+            tokenTick += 1
+            if tokenTick >= 6 {
+                let tokenUsage = tokenCollector.collect()
+                if !tokenUsage.isEmpty {
+                    lock.lock()
+                    _tokenUsage = tokenUsage
+                    lock.unlock()
+                }
+                tokenTick = 0
             }
 
             Thread.sleep(forTimeInterval: 0.5)
@@ -132,7 +177,9 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
     /// Deterministic showcase data. CPU cores gently wave over time so the demo looks
     /// alive on the LCD; everything else is fixed so it reads clearly in a photo.
     private func demoData() -> (CPUSnapshot, MemorySnapshot, TemperatureSnapshot,
-                                SystemSnapshot, AgentsSnapshot) {
+                                SystemSnapshot, AgentsSnapshot,
+                                DiskSnapshot, DiskIOSnapshot, NetworkSnapshot,
+                                TokenUsageSnapshot) {
         let tt = Date().timeIntervalSince1970
         let cores: [Double] = (0..<10).map { i in
             let wave: Double = sin(tt * 1.3 + Double(i) * 0.9)
@@ -182,12 +229,24 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
                               isWorking: true,
                               stepCurrent: 4, stepTotal: 6,
                               stepText: "部署到预发环境并跑冒烟测试"))
-        return (cpu, mem, temp, sys, agents)
+        let disk = DiskSnapshot(totalGB: 512, usedGB: 256, freeGB: 256)
+        let diskIO = DiskIOSnapshot(readBytesPerSec: 125_829_120, writeBytesPerSec: 83_886_080)
+        let network = NetworkSnapshot(rxBytesPerSec: 15_728_640, txBytesPerSec: 3_932_160)
+        let tokenEntry = TokenUsageEntry(
+            model: "deepseek-v4-flash-free", provider: "opencode", client: "opencode",
+            input: 69_297, output: 10_016, cacheRead: 2_598_656,
+            cacheWrite: 0, reasoning: 11_895, messageCount: 53, cost: 0.0)
+        let tokenUsage = TokenUsageSnapshot(
+            entries: [tokenEntry],
+            totalInput: 69_297, totalOutput: 10_016,
+            totalCacheRead: 2_598_656, totalCacheWrite: 0,
+            totalMessages: 53, totalCost: 0.0, processingTimeMs: 1925)
+        return (cpu, mem, temp, sys, agents, disk, diskIO, network, tokenUsage)
     }
 
     /// Render one demo frame with the showcase data (for --snapshot).
     func renderSimulated(coreCount: Int) -> CGImage? {
-        let (cpu, mem, temp, sys, agents) = demoData()
+        let (cpu, mem, temp, sys, agents, _, _, _, _) = demoData()
         let w = Layout.width, h = Layout.height
         let colorSpace = CGColorSpaceCreateDeviceRGB()
         guard let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8,
@@ -214,8 +273,10 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
         let cpu: CPUSnapshot, mem: MemorySnapshot, temp: TemperatureSnapshot
         let sys: SystemSnapshot?
         var agents: AgentsSnapshot
+        let disk: DiskSnapshot, diskIO: DiskIOSnapshot, network: NetworkSnapshot
+        let tokenUsage: TokenUsageSnapshot
         if demoMode {
-            (cpu, mem, temp, sys, agents) = demoData()
+            (cpu, mem, temp, sys, agents, disk, diskIO, network, tokenUsage) = demoData()
         } else {
             // Read cached metrics (never blocks — uses latest available values)
             lock.lock()
@@ -223,6 +284,13 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
                 lock.unlock(); return nil
             }
             cpu = c; mem = m; temp = tp; agents = a; sys = _sys
+            disk = _disk ?? DiskSnapshot(totalGB: 0, usedGB: 0, freeGB: 0)
+            diskIO = _diskIO ?? DiskIOSnapshot(readBytesPerSec: 0, writeBytesPerSec: 0)
+            network = _network ?? NetworkSnapshot(rxBytesPerSec: 0, txBytesPerSec: 0)
+            tokenUsage = _tokenUsage ?? TokenUsageSnapshot(
+                entries: [], totalInput: 0, totalOutput: 0,
+                totalCacheRead: 0, totalCacheWrite: 0,
+                totalMessages: 0, totalCost: 0, processingTimeMs: 0)
             lock.unlock()
         }
 
@@ -256,7 +324,16 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
         let agentsBusy = agents.claude.isWorking || agents.claude.needsAttention
             || agents.codex.isWorking || agents.codex.needsAttention
         renderCPU(ctx, cpu: cpu, temp: temp, agentsBusy: agentsBusy)
-        renderAgents(ctx, agents: agents)
+
+        // Middle panel rotation: AI AGENTS → DISK · NETWORK → TOKEN USAGE
+        let middlePanel = resolveMiddlePanel()
+        switch middlePanel {
+        case 0: renderAgents(ctx, agents: agents)
+        case 1: renderDiskNetwork(ctx, disk: disk, diskIO: diskIO, network: network)
+        case 2: renderTokenUsage(ctx, tokenUsage: tokenUsage)
+        default: renderAgents(ctx, agents: agents)
+        }
+
         renderMemory(ctx, mem: mem, sys: sys, agentsBusy: agentsBusy)
 
         let image = ctx.makeImage()
@@ -580,6 +657,258 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
         }
         ctx.draw(image, in: CGRect(x: 0, y: 0, width: rect.width, height: rect.height))
         ctx.restoreGState()
+    }
+
+    // MARK: - Disk & Network Panel (triple width, split layout)
+
+    /// Merged DISK + NETWORK panel — two columns like the AI AGENTS layout.
+    /// Left column: disk usage gauge + capacity bars + read/write I/O.
+    /// Right column: network download / upload.
+    private func renderDiskNetwork(_ ctx: CGContext, disk: DiskSnapshot,
+                                    diskIO: DiskIOSnapshot, network: NetworkSnapshot) {
+        let x = Layout.panelX(1)
+        let pw = Layout.panelWidth * 3 + Layout.gap * 2
+        let py = Layout.panelY
+        let ph = Layout.panelHeight
+
+        Draw.panel(ctx, x: x, y: py, w: pw, h: ph, accent: Color.cyan)
+        Draw.text(ctx, "DISK · NETWORK", x: x + 20, y: py + 14,
+                  font: Fonts.system(24, weight: .bold), color: Color.cyan)
+
+        // Vertical divider between columns
+        let midX = x + pw / 2
+        Draw.line(ctx, from: CGPoint(x: midX, y: py + 52),
+                  to: CGPoint(x: midX, y: py + ph - 14), color: Color.border)
+
+        let colW = pw / 2 - 40
+
+        // --- Left column: DISK ---
+        renderDiskColumn(ctx, x: x + 22, w: colW, py: py, ph: ph,
+                         disk: disk, diskIO: diskIO)
+
+        // --- Right column: NETWORK ---
+        renderNetworkColumn(ctx, x: midX + 18, w: colW, py: py, ph: ph,
+                            network: network)
+    }
+
+    private func renderDiskColumn(_ ctx: CGContext, x: Int, w: Int, py: Int, ph: Int,
+                                   disk: DiskSnapshot, diskIO: DiskIOSnapshot) {
+        let capFont = Fonts.system(16)
+
+        // Column title + total capacity
+        Draw.text(ctx, "DISK", x: x, y: py + 50,
+                  font: Fonts.system(24, weight: .bold), color: Color.cyan)
+        let totalStr = String(format: "Total: %.0f GB", disk.totalGB)
+        let totalW = (totalStr as NSString).size(withAttributes: [.font: capFont]).width
+        Draw.text(ctx, totalStr, x: Int(CGFloat(x + w) - totalW), y: py + 56,
+                  font: capFont, color: Color.textS)
+
+        // Arc gauge — used %
+        let gcx = x + 78
+        let gcy = py + 180
+        let pct = disk.percent
+        Draw.arcGauge(ctx, cx: gcx, cy: gcy, radius: 56,
+                      percent: pct,
+                      color: Color.forPercent(pct),
+                      colorDark: Color.forPercentDark(pct), thickness: 12)
+        Draw.centeredText(ctx, String(format: "%.0f", pct), cx: gcx, y: gcy - 26,
+                          font: Fonts.system(42, weight: .bold), color: Color.textW)
+        Draw.centeredText(ctx, "%", cx: gcx, y: gcy + 22,
+                          font: Fonts.system(18), color: Color.textS)
+
+        // Used / Free capacity bars — right of gauge
+        let capX = x + 165
+        let capBarW = w - 175
+        let usedPct = disk.totalGB > 0 ? disk.usedGB / disk.totalGB * 100 : 0
+        let usedColor = Color.forPercent(usedPct)
+        Draw.text(ctx, "Used", x: capX, y: py + 125,
+                  font: Fonts.system(16), color: Color.textL)
+        let usedValStr = String(format: "%.0f GB", disk.usedGB)
+        let usedValW = (usedValStr as NSString).size(withAttributes: [.font: capFont]).width
+        Draw.text(ctx, usedValStr,
+                  x: Int(CGFloat(capX + capBarW) - usedValW), y: py + 125,
+                  font: capFont, color: usedColor)
+        Draw.bar(ctx, x: capX, y: py + 148, w: capBarW, h: 9,
+                 percent: usedPct, color: usedColor)
+
+        let freePct = disk.totalGB > 0 ? disk.freeGB / disk.totalGB * 100 : 0
+        Draw.text(ctx, "Free", x: capX, y: py + 180,
+                  font: Fonts.system(16), color: Color.textL)
+        let freeValStr = String(format: "%.0f GB", disk.freeGB)
+        let freeValW = (freeValStr as NSString).size(withAttributes: [.font: capFont]).width
+        Draw.text(ctx, freeValStr,
+                  x: Int(CGFloat(capX + capBarW) - freeValW), y: py + 180,
+                  font: capFont, color: Color.cyan)
+        Draw.bar(ctx, x: capX, y: py + 203, w: capBarW, h: 9,
+                 percent: freePct, color: Color.cyan)
+
+        // Read / Write I/O — bottom of column
+        let ioY = py + 270
+        let halfW = (w - 20) / 2
+        let readMB = diskIO.readBytesPerSec / 1_048_576
+        let writeMB = diskIO.writeBytesPerSec / 1_048_576
+
+        Draw.text(ctx, "↓ Read", x: x, y: ioY,
+                  font: Fonts.system(18), color: Color.green)
+        Draw.text(ctx, String(format: "%.1f MB/s", readMB),
+                  x: x, y: ioY + 28,
+                  font: Fonts.system(30, weight: .bold), color: Color.textW)
+        Draw.bar(ctx, x: x, y: ioY + 68, w: halfW, h: 10,
+                 percent: min(readMB / 500 * 100, 100), color: Color.green)
+
+        let writeX = x + halfW + 20
+        Draw.text(ctx, "↑ Write", x: writeX, y: ioY,
+                  font: Fonts.system(18), color: Color.orange)
+        Draw.text(ctx, String(format: "%.1f MB/s", writeMB),
+                  x: writeX, y: ioY + 28,
+                  font: Fonts.system(30, weight: .bold), color: Color.textW)
+        Draw.bar(ctx, x: writeX, y: ioY + 68, w: halfW, h: 10,
+                 percent: min(writeMB / 500 * 100, 100), color: Color.orange)
+    }
+
+    private func renderNetworkColumn(_ ctx: CGContext, x: Int, w: Int, py: Int, ph: Int,
+                                      network: NetworkSnapshot) {
+        Draw.text(ctx, "NETWORK", x: x, y: py + 50,
+                  font: Fonts.system(24, weight: .bold), color: Color.magenta)
+
+        let dlKB = network.rxBytesPerSec / 1024
+        let ulKB = network.txBytesPerSec / 1024
+
+        // Download — top half
+        Draw.text(ctx, "↓ Download", x: x, y: py + 100,
+                  font: Fonts.system(20), color: Color.green)
+        Draw.text(ctx, String(format: "%.1f", dlKB),
+                  x: x, y: py + 130,
+                  font: Fonts.system(64, weight: .bold), color: Color.textW)
+        Draw.text(ctx, "KB/s", x: x, y: py + 200,
+                  font: Fonts.system(20), color: Color.textS)
+        Draw.bar(ctx, x: x, y: py + 230, w: w, h: 10,
+                 percent: min(dlKB / 256_000 * 100, 100), color: Color.green)
+
+        // Upload — bottom half
+        Draw.text(ctx, "↑ Upload", x: x, y: py + 275,
+                  font: Fonts.system(20), color: Color.orange)
+        Draw.text(ctx, String(format: "%.1f", ulKB),
+                  x: x, y: py + 305,
+                  font: Fonts.system(64, weight: .bold), color: Color.textW)
+        Draw.text(ctx, "KB/s", x: x, y: py + 375,
+                  font: Fonts.system(20), color: Color.textS)
+        Draw.bar(ctx, x: x, y: py + 405, w: w, h: 10,
+                 percent: min(ulKB / 256_000 * 100, 100), color: Color.orange)
+    }
+
+    // MARK: - Token Usage Panel (triple width)
+
+    private func formatCount(_ n: Int) -> String {
+        let v = Double(n)
+        if v >= 1_000_000 { return String(format: v / 1_000_000 < 100 ? "%.1fM" : "%.0fM", v / 1_000_000) }
+        if v >= 1_000 { return String(format: v / 1_000 < 100 ? "%.0fK" : "%.0fK", v / 1_000) }
+        return "\(n)"
+    }
+
+    private func formatCost(_ c: Double) -> String {
+        String(format: "$%.2f", c)
+    }
+
+    private let tokenCols: [(label: String, width: Int)] = [
+        ("#", 30), ("Model", 240), ("Provider", 100), ("Client", 100),
+        ("Input", 85), ("Output", 85), ("Cache R", 100), ("Total", 85), ("Cost", 75),
+    ]
+    private var tokenColTotalWidth: Int { tokenCols.reduce(0) { $0 + $1.width } }
+
+    private func renderTokenUsage(_ ctx: CGContext, tokenUsage: TokenUsageSnapshot) {
+        let x = Layout.panelX(1)
+        let pw = Layout.panelWidth * 3 + Layout.gap * 2
+        let py = Layout.panelY
+        let ph = Layout.panelHeight
+
+        Draw.panel(ctx, x: x, y: py, w: pw, h: ph, accent: Color.claude)
+        Draw.text(ctx, "TOKEN USAGE", x: x + 20, y: py + 14,
+                  font: Fonts.system(24, weight: .bold), color: Color.claude)
+
+        if tokenUsage.processingTimeMs > 0 {
+            let ptStr = "\(tokenUsage.processingTimeMs)ms"
+            let ptFont = Fonts.system(16)
+            let ptW = (ptStr as NSString).size(withAttributes: [.font: ptFont]).width
+            Draw.text(ctx, ptStr, x: Int(CGFloat(x + pw - 18) - ptW), y: py + 18,
+                      font: ptFont, color: Color.textD)
+        }
+
+        if tokenUsage.isEmpty {
+            Draw.centeredText(ctx, "No data — run tokscale to populate",
+                              cx: x + pw / 2, y: py + ph / 2 - 20,
+                              font: Fonts.system(22), color: Color.textD)
+            return
+        }
+
+        // Column header row
+        let hdrY = py + 60
+        var cx = x + 22
+        let cellFont = Fonts.system(15, weight: .medium)
+        for col in tokenCols {
+            Draw.text(ctx, col.label, x: cx, y: hdrY, font: cellFont, color: Color.textL)
+            cx += col.width
+        }
+
+        // Underline
+        Draw.line(ctx, from: CGPoint(x: x + 20, y: hdrY + 24),
+                  to: CGPoint(x: x + pw - 20, y: hdrY + 24), color: Color.border)
+
+        // Data rows
+        let rowH = 28
+        let dataFont = Fonts.system(15)
+        var ry = hdrY + 32
+        let maxRows = (ph - 120 - 60) / rowH  // leave room for summary
+
+        for (i, entry) in tokenUsage.entries.prefix(maxRows).enumerated() {
+            let totalTokens = entry.input + entry.output + entry.cacheRead
+
+            let vals: [String] = [
+                "\(i + 1)",
+                truncate(entry.model, font: dataFont, maxW: CGFloat(tokenCols[1].width - 4)),
+                truncate(entry.provider, font: dataFont, maxW: CGFloat(tokenCols[2].width - 4)),
+                truncate(entry.client, font: dataFont, maxW: CGFloat(tokenCols[3].width - 4)),
+                formatCount(entry.input),
+                formatCount(entry.output),
+                formatCount(entry.cacheRead),
+                formatCount(totalTokens),
+                formatCost(entry.cost),
+            ]
+
+            var cx2 = x + 22
+            let rowColor: CGColor = i % 2 == 0 ? Color.textS : Color.textD
+            for (ci, val) in vals.enumerated() {
+                Draw.text(ctx, val, x: cx2, y: ry,
+                          font: dataFont, color: ci == 0 ? Color.textL : rowColor)
+                cx2 += tokenCols[ci].width
+            }
+            ry += rowH
+        }
+
+        // Summary bar
+        let sumY = py + ph - 52
+        Draw.line(ctx, from: CGPoint(x: x + 16, y: sumY - 8),
+                  to: CGPoint(x: x + pw - 16, y: sumY - 8), color: Color.border)
+
+        let sumItems = [
+            ("In", formatCount(tokenUsage.totalInput)),
+            ("Out", formatCount(tokenUsage.totalOutput)),
+            ("Cache", formatCount(tokenUsage.totalCacheRead)),
+            ("Msgs", "\(tokenUsage.totalMessages)"),
+            ("Cost", formatCost(tokenUsage.totalCost)),
+        ]
+        let sumFont = Fonts.system(17, weight: .medium)
+        let sumGap = 30
+        var sx = x + 22
+        let maxSX = x + pw - 22
+        for (label, val) in sumItems {
+            let text = "\(label): \(val)"
+            let tw = (text as NSString).size(withAttributes: [.font: sumFont]).width
+            let totalW = tw + CGFloat(sumGap)
+            if sx + Int(totalW) > maxSX { break }
+            Draw.text(ctx, text, x: sx, y: sumY + 6, font: sumFont, color: Color.textW)
+            sx += Int(totalW)
+        }
     }
 
     // MARK: - AI Agents Panel (triple width)
