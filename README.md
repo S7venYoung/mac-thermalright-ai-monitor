@@ -12,6 +12,14 @@
 
 <sub>实时演示(假数据)。两个 agent 都在"工作"→ 面板呼吸、Bongo Cat 敲键盘、皮卡丘随 CPU 负载蹦跳放电、时钟走字。</sub>
 
+![仪表盘](img/disk_network_preview.png)
+
+<sub>硬盘使用情况和网络状态。</sub>
+
+![仪表盘](img/token_usage_preview.png)
+
+<sub>Token 使用情况, 使用 tokscale --today --json 进行统计 。</sub>
+
 > 基于 [beret21/MacTR](https://github.com/beret21/MacTR) 改造,核心是一块实时追踪
 > [Claude Code](https://claude.com/claude-code) 与 [Codex](https://openai.com/codex)
 > 会话的 **AI Agents** 面板。

@@ -810,11 +810,13 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
         String(format: "$%.2f", c)
     }
 
-    private let tokenCols: [(label: String, width: Int)] = [
-        ("#", 30), ("Model", 240), ("Provider", 100), ("Client", 100),
-        ("Input", 85), ("Output", 85), ("Cache R", 100), ("Total", 85), ("Cost", 75),
+    private let tokenCols: [(label: String, width: Int, align: TokenColAlign)] = [
+        ("#", 30, .center), ("Model", 300, .left), ("Provider", 120, .left), ("Client", 120, .left),
+        ("Input", 95, .right), ("Output", 95, .right), ("Cache R", 105, .right), ("Total", 95, .right), ("Cost", 88, .right),
     ]
     private var tokenColTotalWidth: Int { tokenCols.reduce(0) { $0 + $1.width } }
+
+    private enum TokenColAlign { case left, center, right }
 
     private func renderTokenUsage(_ ctx: CGContext, tokenUsage: TokenUsageSnapshot) {
         let x = Layout.panelX(1)
@@ -842,32 +844,47 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
         }
 
         // Column header row
-        let hdrY = py + 60
-        var cx = x + 22
-        let cellFont = Fonts.system(15, weight: .medium)
-        for col in tokenCols {
-            Draw.text(ctx, col.label, x: cx, y: hdrY, font: cellFont, color: Color.textL)
-            cx += col.width
+        let hdrY = py + 58
+        let rowTopY = hdrY - 6
+        let rowH = 32
+        let headerBG = CGPath(roundedRect: CGRect(x: CGFloat(x + 16), y: CGFloat(rowTopY),
+                                                   width: CGFloat(pw - 32), height: CGFloat(rowH)),
+                              cornerWidth: 8, cornerHeight: 8, transform: nil)
+        ctx.setFillColor(Color.border.copy(alpha: 0.55) ?? Color.border)
+        ctx.addPath(headerBG)
+        ctx.fillPath()
+
+        let cellFont = Fonts.system(15, weight: .semibold)
+        let baseX = x + 22
+        for (ci, col) in tokenCols.enumerated() {
+            let colX = baseX + tokenCols.prefix(ci).reduce(0) { $0 + $1.width }
+            let tx = alignedX(text: col.label, colX: colX, width: col.width, align: col.align, font: cellFont)
+            Draw.text(ctx, col.label, x: tx, y: hdrY, font: cellFont, color: Color.textW)
         }
 
-        // Underline
-        Draw.line(ctx, from: CGPoint(x: x + 20, y: hdrY + 24),
-                  to: CGPoint(x: x + pw - 20, y: hdrY + 24), color: Color.border)
-
         // Data rows
-        let rowH = 28
         let dataFont = Fonts.system(15)
-        var ry = hdrY + 32
-        let maxRows = (ph - 120 - 60) / rowH  // leave room for summary
+        let contentTop = hdrY + rowH + 6
+        let summaryH = 54
+        let maxRows = max(1, (ph - contentTop - summaryH - py) / rowH)
 
         for (i, entry) in tokenUsage.entries.prefix(maxRows).enumerated() {
             let totalTokens = entry.input + entry.output + entry.cacheRead
+            let ry = contentTop + i * rowH
+
+            // subtle alternating row background
+            if i % 2 == 1 {
+                let stripe = CGRect(x: CGFloat(x + 16), y: CGFloat(ry - 5),
+                                    width: CGFloat(pw - 32), height: CGFloat(rowH))
+                ctx.setFillColor(Color.border.copy(alpha: 0.25) ?? Color.border)
+                ctx.fill(stripe)
+            }
 
             let vals: [String] = [
                 "\(i + 1)",
-                truncate(entry.model, font: dataFont, maxW: CGFloat(tokenCols[1].width - 4)),
-                truncate(entry.provider, font: dataFont, maxW: CGFloat(tokenCols[2].width - 4)),
-                truncate(entry.client, font: dataFont, maxW: CGFloat(tokenCols[3].width - 4)),
+                truncate(entry.model, font: dataFont, maxW: CGFloat(tokenCols[1].width - 10)),
+                truncate(entry.provider, font: dataFont, maxW: CGFloat(tokenCols[2].width - 10)),
+                truncate(entry.client, font: dataFont, maxW: CGFloat(tokenCols[3].width - 10)),
                 formatCount(entry.input),
                 formatCount(entry.output),
                 formatCount(entry.cacheRead),
@@ -875,39 +892,51 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
                 formatCost(entry.cost),
             ]
 
-            var cx2 = x + 22
-            let rowColor: CGColor = i % 2 == 0 ? Color.textS : Color.textD
             for (ci, val) in vals.enumerated() {
-                Draw.text(ctx, val, x: cx2, y: ry,
-                          font: dataFont, color: ci == 0 ? Color.textL : rowColor)
-                cx2 += tokenCols[ci].width
+                let col = tokenCols[ci]
+                let colX = baseX + tokenCols.prefix(ci).reduce(0) { $0 + $1.width }
+                let tx = alignedX(text: val, colX: colX, width: col.width, align: col.align, font: dataFont)
+                let color: CGColor = ci == 0 ? Color.textL : Color.textW
+                Draw.text(ctx, val, x: tx, y: ry, font: dataFont, color: color)
             }
-            ry += rowH
         }
 
         // Summary bar
-        let sumY = py + ph - 52
-        Draw.line(ctx, from: CGPoint(x: x + 16, y: sumY - 8),
-                  to: CGPoint(x: x + pw - 16, y: sumY - 8), color: Color.border)
+        let sumY = py + ph - 44
+        Draw.line(ctx, from: CGPoint(x: x + 16, y: sumY - 10),
+                  to: CGPoint(x: x + pw - 16, y: sumY - 10), color: Color.border)
 
-        let sumItems = [
-            ("In", formatCount(tokenUsage.totalInput)),
-            ("Out", formatCount(tokenUsage.totalOutput)),
-            ("Cache", formatCount(tokenUsage.totalCacheRead)),
-            ("Msgs", "\(tokenUsage.totalMessages)"),
-            ("Cost", formatCost(tokenUsage.totalCost)),
+        let sumItems: [(label: String, value: String, accent: Bool)] = [
+            ("In", formatCount(tokenUsage.totalInput), false),
+            ("Out", formatCount(tokenUsage.totalOutput), false),
+            ("Cache", formatCount(tokenUsage.totalCacheRead), false),
+            ("Msgs", "\(tokenUsage.totalMessages)", false),
+            ("Cost", formatCost(tokenUsage.totalCost), true),
         ]
-        let sumFont = Fonts.system(17, weight: .medium)
-        let sumGap = 30
+        let sumLabelFont = Fonts.system(16, weight: .medium)
+        let sumValueFont = Fonts.system(16, weight: .semibold)
         var sx = x + 22
         let maxSX = x + pw - 22
-        for (label, val) in sumItems {
-            let text = "\(label): \(val)"
-            let tw = (text as NSString).size(withAttributes: [.font: sumFont]).width
-            let totalW = tw + CGFloat(sumGap)
-            if sx + Int(totalW) > maxSX { break }
-            Draw.text(ctx, text, x: sx, y: sumY + 6, font: sumFont, color: Color.textW)
-            sx += Int(totalW)
+        let minGap = 28
+        for item in sumItems {
+            let labelW = ("\(item.label):" as NSString).size(withAttributes: [.font: sumLabelFont]).width
+            let valueW = (item.value as NSString).size(withAttributes: [.font: sumValueFont]).width
+            let totalW = Int(labelW + 4 + valueW) + minGap
+            guard sx + totalW <= maxSX else { break }
+
+            Draw.text(ctx, "\(item.label):", x: sx, y: sumY, font: sumLabelFont, color: Color.textS)
+            Draw.text(ctx, item.value, x: sx + Int(labelW) + 4, y: sumY,
+                      font: sumValueFont, color: item.accent ? Color.claude : Color.textW)
+            sx += totalW
+        }
+    }
+
+    private func alignedX(text: String, colX: Int, width: Int, align: TokenColAlign, font: NSFont) -> Int {
+        let tw = (text as NSString).size(withAttributes: [.font: font]).width
+        switch align {
+        case .left:   return colX
+        case .center: return colX + (width - Int(tw)) / 2
+        case .right:  return colX + width - Int(tw) - 6
         }
     }
 
