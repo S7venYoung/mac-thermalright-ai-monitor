@@ -50,6 +50,13 @@ jobs:
           test -d "$bin_dir/Sparkle.framework"
           cp -R "$bin_dir/Sparkle.framework" "$frameworks_dir/"
 
+          sparkle_dependency="$(otool -L "$executable" \
+            | awk '/Sparkle.framework/{print $1; exit}')"
+          test -n "$sparkle_dependency"
+          install_name_tool -change "$sparkle_dependency" \
+            "@executable_path/../Frameworks/Sparkle.framework/Versions/B/Sparkle" \
+            "$executable"
+
           libusb_dependency="$(otool -L "$executable" | awk '/libusb/{print $1; exit}')"
           test -n "$libusb_dependency"
           libusb_name="$(basename "$libusb_dependency")"
@@ -67,6 +74,9 @@ jobs:
           codesign --verify --deep --strict --verbose=2 "$app_dir"
           plutil -lint "$app_dir/Contents/Info.plist"
           otool -L "$executable"
+
+          "$executable" --snapshot "$PWD/dist/smoke-test.png" --cores 10
+          test -s "$PWD/dist/smoke-test.png"
 
           ditto -c -k --sequesterRsrc --keepParent \
             "$app_dir" MacTR-macos-arm64.zip
