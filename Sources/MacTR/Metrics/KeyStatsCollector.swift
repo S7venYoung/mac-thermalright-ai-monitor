@@ -71,6 +71,7 @@ final class KeyStatsCollector: @unchecked Sendable {
     private var starting = false
     private var tracking = false
     private var shouldTrack = false
+    private var inputAccessAtTapStart = false
     private var lastSaveAt: TimeInterval = 0
 
     init() {
@@ -113,6 +114,7 @@ final class KeyStatsCollector: @unchecked Sendable {
         let runLoop = eventRunLoop
         tracking = false
         starting = false
+        inputAccessAtTapStart = false
         eventRunLoop = nil
         eventTap = nil
         lock.unlock()
@@ -122,12 +124,21 @@ final class KeyStatsCollector: @unchecked Sendable {
     }
 
     func collect() -> KeyStatsSnapshot {
+        let inputAccessNow = CGPreflightListenEventAccess()
         lock.lock()
         rolloverIfNeeded()
         let current = state
         let isAvailable = tracking
+        let runLoopToRestart =
+            tracking && inputAccessNow && !inputAccessAtTapStart
+                ? eventRunLoop : nil
         saveLocked()
         lock.unlock()
+        if let runLoopToRestart {
+            // The user granted Input Monitoring while the mouse-only tap was
+            // already running. Recreate it so keyboard events are included.
+            CFRunLoopStop(runLoopToRestart)
+        }
 
         return KeyStatsSnapshot(
             available: isAvailable,
@@ -195,24 +206,7 @@ final class KeyStatsCollector: @unchecked Sendable {
     }
 
     private func runEventTap() {
-        // A listen-only event tap can still receive mouse events when macOS has
-        // not granted keyboard Input Monitoring. Do not accept that partial
-        // state: retry until the permission is granted, then create a fresh tap
-        // that receives both keyboard and mouse events.
-        guard CGPreflightListenEventAccess() else {
-            lock.lock()
-            starting = false
-            tracking = false
-            let retry = shouldTrack
-            lock.unlock()
-            if retry {
-                eventQueue.asyncAfter(deadline: .now() + 2) { [weak self] in
-                    self?.retryEventTapIfNeeded()
-                }
-            }
-            return
-        }
-
+        let inputAccess = CGPreflightListenEventAccess()
         let types: [CGEventType] = [
             .keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown,
             .mouseMoved, .leftMouseDragged, .rightMouseDragged,
@@ -250,6 +244,7 @@ final class KeyStatsCollector: @unchecked Sendable {
         eventRunLoop = runLoop
         starting = false
         tracking = true
+        inputAccessAtTapStart = inputAccess
         lock.unlock()
 
         CFRunLoopAddSource(runLoop, source, .commonModes)
@@ -262,6 +257,7 @@ final class KeyStatsCollector: @unchecked Sendable {
         eventRunLoop = nil
         tracking = false
         starting = false
+        inputAccessAtTapStart = false
         let retry = shouldTrack
         lock.unlock()
         if retry {
