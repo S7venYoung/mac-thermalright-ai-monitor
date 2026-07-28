@@ -34,24 +34,47 @@ jobs:
       - name: Build release
         run: swift build -c release
 
-      - name: Package executable
+      - name: Package application
         run: |
           bin_dir="$(swift build -c release --show-bin-path)"
-          mkdir -p dist
-          cp "$bin_dir/MacTR" dist/
-          chmod +x dist/MacTR
+          app_dir="$PWD/dist/MacTR.app"
+          executable="$app_dir/Contents/MacOS/MacTR"
+          frameworks_dir="$app_dir/Contents/Frameworks"
 
-          if [ -d "$bin_dir/Sparkle.framework" ]; then
-            cp -R "$bin_dir/Sparkle.framework" dist/
+          mkdir -p "$app_dir/Contents/MacOS" "$frameworks_dir" \
+            "$app_dir/Contents/Resources"
+          cp Sources/MacTR/Resources/Info.plist "$app_dir/Contents/Info.plist"
+          cp "$bin_dir/MacTR" "$executable"
+          chmod +x "$executable"
+
+          test -d "$bin_dir/Sparkle.framework"
+          cp -R "$bin_dir/Sparkle.framework" "$frameworks_dir/"
+
+          libusb_dependency="$(otool -L "$executable" | awk '/libusb/{print $1; exit}')"
+          test -n "$libusb_dependency"
+          libusb_name="$(basename "$libusb_dependency")"
+          cp -L "$libusb_dependency" "$frameworks_dir/$libusb_name"
+          install_name_tool -change "$libusb_dependency" \
+            "@executable_path/../Frameworks/$libusb_name" "$executable"
+
+          if ! otool -l "$executable" \
+            | grep -Fq '@executable_path/../Frameworks'; then
+            install_name_tool -add_rpath \
+              "@executable_path/../Frameworks" "$executable"
           fi
 
-          otool -L dist/MacTR
-          tar -czf MacTR-macos-arm64.tar.gz -C dist .
+          codesign --force --deep --sign - "$app_dir"
+          codesign --verify --deep --strict --verbose=2 "$app_dir"
+          plutil -lint "$app_dir/Contents/Info.plist"
+          otool -L "$executable"
+
+          ditto -c -k --sequesterRsrc --keepParent \
+            "$app_dir" MacTR-macos-arm64.zip
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
           name: MacTR-macos-arm64
-          path: MacTR-macos-arm64.tar.gz
+          path: MacTR-macos-arm64.zip
           if-no-files-found: error
           retention-days: 30
