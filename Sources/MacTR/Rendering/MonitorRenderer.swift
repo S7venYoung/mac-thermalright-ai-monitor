@@ -1154,7 +1154,9 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
         let rainFont = Fonts.system(15, weight: .medium)
         Draw.text(
             ctx,
-            truncate("降雨：\(weather.rainForecast)", font: rainFont, maxWidth: w),
+            truncate(
+                "降雨：\(weather.rainForecast)",
+                font: rainFont, maxW: CGFloat(w)),
             x: x, y: py + 222, font: rainFont, color: Color.green)
 
         var rowY = py + 252
