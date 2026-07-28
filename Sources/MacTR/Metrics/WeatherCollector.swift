@@ -1,5 +1,13 @@
 import Foundation
 
+struct DailyWeatherForecast: Sendable {
+    let day: String
+    let condition: String
+    let icon: String
+    let highTemperature: Double
+    let lowTemperature: Double
+}
+
 struct WeatherSnapshot: Sendable {
     let available: Bool
     let city: String
@@ -8,13 +16,13 @@ struct WeatherSnapshot: Sendable {
     let humidity: Int
     let windSpeed: Double
     let condition: String
-    let highTemperature: Double?
-    let lowTemperature: Double?
+    let icon: String
+    let daily: [DailyWeatherForecast]
 
     static let unavailable = WeatherSnapshot(
         available: false, city: "", temperature: 0,
         apparentTemperature: 0, humidity: 0, windSpeed: 0,
-        condition: "", highTemperature: nil, lowTemperature: nil)
+        condition: "", icon: "", daily: [])
 }
 
 private struct CaiyunResponse: Decodable {
@@ -31,10 +39,16 @@ private struct CaiyunResponse: Decodable {
         }
         struct Daily: Decodable {
             struct Temperature: Decodable {
+                let date: String
                 let max: Double
                 let min: Double
             }
-            let temperature: [Temperature]?
+            struct Skycon: Decodable {
+                let date: String
+                let value: String
+            }
+            let temperature: [Temperature]
+            let skycon: [Skycon]
         }
         let realtime: Realtime
         let daily: Daily?
@@ -88,7 +102,7 @@ final class WeatherCollector: @unchecked Sendable {
         components?.queryItems = [
             URLQueryItem(name: "lang", value: "zh_CN"),
             URLQueryItem(name: "unit", value: "metric"),
-            URLQueryItem(name: "dailysteps", value: "1"),
+            URLQueryItem(name: "dailysteps", value: "7"),
             URLQueryItem(name: "hourlysteps", value: "24"),
         ]
         guard let url = components?.url,
@@ -101,8 +115,19 @@ final class WeatherCollector: @unchecked Sendable {
             return key == cacheKey ? cachedSnapshot : .unavailable
         }
 
-        let daily = result.daily?.temperature?.first
         let realtime = result.realtime
+        let skyconByDate = Dictionary(
+            uniqueKeysWithValues:
+                (result.daily?.skycon ?? []).map { ($0.date, $0.value) })
+        let daily = (result.daily?.temperature ?? []).prefix(7).map { item in
+            let skycon = skyconByDate[item.date] ?? realtime.skycon
+            return DailyWeatherForecast(
+                day: Self.dayName(item.date),
+                condition: Self.conditionName(skycon),
+                icon: Self.conditionIcon(skycon),
+                highTemperature: item.max,
+                lowTemperature: item.min)
+        }
         let snapshot = WeatherSnapshot(
             available: true,
             city: city.isEmpty ? "当前位置" : city,
@@ -111,8 +136,8 @@ final class WeatherCollector: @unchecked Sendable {
             humidity: Int((realtime.humidity * 100).rounded()),
             windSpeed: realtime.wind.speed,
             condition: Self.conditionName(realtime.skycon),
-            highTemperature: daily?.max,
-            lowTemperature: daily?.min)
+            icon: Self.conditionIcon(realtime.skycon),
+            daily: daily)
         cacheKey = key
         cachedSnapshot = snapshot
         cachedAt = Date()
@@ -154,5 +179,35 @@ final class WeatherCollector: @unchecked Sendable {
         case "WIND": "大风"
         default: code
         }
+    }
+
+    private static func conditionIcon(_ code: String) -> String {
+        switch code {
+        case "CLEAR_DAY": "☀︎"
+        case "CLEAR_NIGHT": "☾"
+        case "PARTLY_CLOUDY_DAY": "⛅︎"
+        case "PARTLY_CLOUDY_NIGHT": "☁︎"
+        case "CLOUDY": "☁︎"
+        case "LIGHT_RAIN": "🌦"
+        case "MODERATE_RAIN", "HEAVY_RAIN", "STORM_RAIN": "☂︎"
+        case "LIGHT_SNOW", "MODERATE_SNOW", "HEAVY_SNOW", "STORM_SNOW": "❄︎"
+        case "LIGHT_HAZE", "MODERATE_HAZE", "HEAVY_HAZE", "FOG": "≋"
+        case "DUST", "SAND", "WIND": "≋"
+        default: "•"
+        }
+    }
+
+    private static func dayName(_ value: String) -> String {
+        let datePart = String(value.prefix(10))
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd"
+        guard let date = formatter.date(from: datePart) else {
+            return datePart
+        }
+        let weekday = Calendar.current.component(.weekday, from: date)
+        return ["周日", "周一", "周二", "周三", "周四", "周五", "周六"][
+            weekday - 1]
     }
 }

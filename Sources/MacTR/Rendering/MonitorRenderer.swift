@@ -1136,33 +1136,40 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
         Draw.text(ctx, weather.city, x: x, y: py + 62,
                   font: Fonts.system(18, weight: .medium), color: Color.textL)
         Draw.text(ctx, String(format: "%.0f°", weather.temperature),
-                  x: x, y: py + 98,
-                  font: Fonts.system(66, weight: .bold), color: Color.textW)
-        Draw.text(ctx, weather.condition, x: x, y: py + 180,
-                  font: Fonts.system(28, weight: .semibold), color: Color.cyan)
+                  x: x, y: py + 90,
+                  font: Fonts.system(58, weight: .bold), color: Color.textW)
+        Draw.text(ctx, weather.icon, x: x + w - 62, y: py + 90,
+                  font: Fonts.system(48), color: Color.orange)
+        Draw.text(ctx, weather.condition, x: x, y: py + 158,
+                  font: Fonts.system(24, weight: .semibold), color: Color.cyan)
+        Draw.text(
+            ctx,
+            String(
+                format: "体感 %.0f°   湿度 %d%%   风 %.1f",
+                weather.apparentTemperature, weather.humidity,
+                weather.windSpeed),
+            x: x, y: py + 194,
+            font: Fonts.system(16), color: Color.textL)
 
-        if let high = weather.highTemperature,
-           let low = weather.lowTemperature {
-            Draw.text(ctx, String(format: "最高 %.0f°  最低 %.0f°", high, low),
-                      x: x, y: py + 228,
-                      font: Fonts.system(19), color: Color.textL)
-        }
-
-        let rows = [
-            ("体感", String(format: "%.0f°", weather.apparentTemperature)),
-            ("湿度", "\(weather.humidity)%"),
-            ("风速", String(format: "%.1f km/h", weather.windSpeed)),
-        ]
-        var rowY = py + 285
-        for (label, value) in rows {
-            Draw.text(ctx, label, x: x, y: rowY,
-                      font: Fonts.system(18), color: Color.textL)
-            let valueFont = Fonts.system(22, weight: .semibold)
-            let valueWidth = (value as NSString).size(
-                withAttributes: [.font: valueFont]).width
-            Draw.text(ctx, value, x: Int(CGFloat(x + w) - valueWidth),
-                      y: rowY - 3, font: valueFont, color: Color.textW)
-            rowY += 48
+        var rowY = py + 232
+        for (index, forecast) in weather.daily.prefix(7).enumerated() {
+            let day = index == 0 ? "今天" : forecast.day
+            Draw.text(ctx, day, x: x, y: rowY,
+                      font: Fonts.system(17, weight: .medium),
+                      color: index == 0 ? Color.cyan : Color.textL)
+            Draw.text(ctx, forecast.icon, x: x + 78, y: rowY - 3,
+                      font: Fonts.system(24), color: Color.orange)
+            let temperatures = String(
+                format: "%.0f° / %.0f°",
+                forecast.highTemperature, forecast.lowTemperature)
+            let temperatureFont = Fonts.system(18, weight: .semibold)
+            let temperatureWidth = (temperatures as NSString).size(
+                withAttributes: [.font: temperatureFont]).width
+            Draw.text(
+                ctx, temperatures,
+                x: Int(CGFloat(x + w) - temperatureWidth), y: rowY,
+                font: temperatureFont, color: Color.textW)
+            rowY += 35
         }
     }
 
