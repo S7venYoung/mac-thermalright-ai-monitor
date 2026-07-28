@@ -196,9 +196,11 @@ final class StatusBarController: NSObject, NSApplicationDelegate, NSMenuDelegate
         NotificationCenter.default.addObserver(
             forName: .deviceStateChanged, object: nil, queue: .main
         ) { [weak self] _ in
-            self?.updateIcon()
-            self?.updateMenuItems()
-            self?.updatePreviewForConnection()
+            Task { @MainActor in
+                self?.updateIcon()
+                self?.updateMenuItems()
+                self?.updatePreviewForConnection()
+            }
         }
 
         // Start engine
