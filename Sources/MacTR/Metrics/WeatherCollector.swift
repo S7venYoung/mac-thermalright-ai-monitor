@@ -89,7 +89,7 @@ final class WeatherCollector: @unchecked Sendable {
             URLQueryItem(name: "lang", value: "zh_CN"),
             URLQueryItem(name: "unit", value: "metric"),
             URLQueryItem(name: "dailysteps", value: "1"),
-            URLQueryItem(name: "hourlysteps", value: "1"),
+            URLQueryItem(name: "hourlysteps", value: "24"),
         ]
         guard let url = components?.url,
               let data = request(url),
