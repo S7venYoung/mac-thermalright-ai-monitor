@@ -13,6 +13,7 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
     private let collector = SystemMetricsCollector()
     private let agentCollector = AgentUsageCollector()
     private let keyStatsCollector = KeyStatsCollector()
+    private let weatherCollector = WeatherCollector()
 
     // Background metrics collection — decoupled from frame loop for consistent refresh
     private let metricsQueue = DispatchQueue(label: "com.thermalvision.metrics")
@@ -29,12 +30,18 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
     private var _diskIO: DiskIOSnapshot?
     private var _network: NetworkSnapshot?
     private var _keyStats: KeyStatsSnapshot?
+    private var _weather: WeatherSnapshot?
+    private var weatherRefreshRequested = true
 
     // User-selected fixed middle panel
     private let panelLock = NSLock()
     private var middleLeft: MiddleSlot = .codex
     private var middleCenter: MiddleSlot = .disk
     private var middleRight: MiddleSlot = .network
+    private var weatherCity = "上海"
+    private var caiyunToken = ""
+    private var weatherLongitude = 121.4737
+    private var weatherLatitude = 31.2304
 
     // Reusable CGContext — avoids allocating 3.6MB every 0.5s (prevents CG raster data leak)
     private var reusableCtx: CGContext?
@@ -114,10 +121,41 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
         panelLock.unlock()
     }
 
+    func setWeatherConfig(
+        city: String, token: String, longitude: Double, latitude: Double
+    ) {
+        panelLock.lock()
+        weatherCity = city
+        caiyunToken = token
+        weatherLongitude = longitude
+        weatherLatitude = latitude
+        panelLock.unlock()
+        lock.lock()
+        _weather = nil
+        weatherRefreshRequested = true
+        lock.unlock()
+    }
+
     private func selectedMiddleSlots() -> (MiddleSlot, MiddleSlot, MiddleSlot) {
         panelLock.lock()
         defer { panelLock.unlock() }
         return (middleLeft, middleCenter, middleRight)
+    }
+
+    private func selectedWeatherConfig() -> (
+        city: String, token: String, longitude: Double, latitude: Double
+    ) {
+        panelLock.lock()
+        defer { panelLock.unlock() }
+        return (
+            weatherCity, caiyunToken, weatherLongitude, weatherLatitude)
+    }
+
+    private func isWeatherVisible() -> Bool {
+        let slots = selectedMiddleSlots()
+        return slots.0 == .weather
+            || slots.1 == .weather
+            || slots.2 == .weather
     }
 
     /// True when a column has a live animation (breathing while working, or the
@@ -140,6 +178,7 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
     private func metricsLoop() {
         log("[Metrics] Loop started on metricsQueue")
         var slowTick = 0
+        var weatherTick = 1200
         while metricsRunning {
             // Fast metrics every tick
             let cpu = collector.collectCPU()
@@ -163,6 +202,23 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
                 _disk = disk; _diskIO = diskIO; _network = network
                 lock.unlock()
                 slowTick = 0
+            }
+
+            weatherTick += 1
+            lock.lock()
+            let refreshWeather = weatherRefreshRequested
+            lock.unlock()
+            if isWeatherVisible(),
+               weatherTick >= 1200 || refreshWeather {
+                let config = selectedWeatherConfig()
+                let weather = weatherCollector.collect(
+                    token: config.token, longitude: config.longitude,
+                    latitude: config.latitude, city: config.city)
+                lock.lock()
+                _weather = weather
+                weatherRefreshRequested = false
+                lock.unlock()
+                weatherTick = 0
             }
 
             Thread.sleep(forTimeInterval: 0.5)
@@ -261,7 +317,8 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
         renderMiddleSlots(ctx, left: slots.0, center: slots.1,
                           right: slots.2, agents: agents,
                           disk: disk, diskIO: diskIO, network: network,
-                          tokenUsage: tokenUsage, keyStats: .demo)
+                          tokenUsage: tokenUsage, keyStats: .demo,
+                          weather: .unavailable)
         renderMemory(ctx, mem: mem, sys: sys, agentsBusy: true)
         return ctx.makeImage()
     }
@@ -281,9 +338,11 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
         let disk: DiskSnapshot, diskIO: DiskIOSnapshot, network: NetworkSnapshot
         let tokenUsage: TokenUsageSnapshot
         let keyStats: KeyStatsSnapshot
+        let weather: WeatherSnapshot
         if demoMode {
             (cpu, mem, temp, sys, agents, disk, diskIO, network, tokenUsage) = demoData()
             keyStats = .demo
+            weather = .unavailable
         } else {
             // Read cached metrics (never blocks — uses latest available values)
             lock.lock()
@@ -299,6 +358,7 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
                 totalCacheRead: 0, totalCacheWrite: 0,
                 totalMessages: 0, totalCost: 0, processingTimeMs: 0)
             keyStats = _keyStats ?? .unavailable
+            weather = _weather ?? .unavailable
             lock.unlock()
         }
 
@@ -342,7 +402,8 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
         renderMiddleSlots(ctx, left: slots.0, center: slots.1,
                           right: slots.2, agents: agents,
                           disk: disk, diskIO: diskIO, network: network,
-                          tokenUsage: tokenUsage, keyStats: keyStats)
+                          tokenUsage: tokenUsage, keyStats: keyStats,
+                          weather: weather)
 
         renderMemory(ctx, mem: mem, sys: sys, agentsBusy: agentsBusy)
 
@@ -958,7 +1019,8 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
                                    disk: DiskSnapshot, diskIO: DiskIOSnapshot,
                                    network: NetworkSnapshot,
                                    tokenUsage: TokenUsageSnapshot,
-                                   keyStats: KeyStatsSnapshot) {
+                                   keyStats: KeyStatsSnapshot,
+                                   weather: WeatherSnapshot) {
         let py = Layout.panelY
         let ph = Layout.panelHeight
 
@@ -970,13 +1032,14 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
             renderMiddleSlot(
                 ctx, slot: slot, x: panelX + 20, w: Layout.panelWidth - 40,
                 py: py, ph: ph, agents: agents, disk: disk, diskIO: diskIO,
-                network: network, tokenUsage: tokenUsage, keyStats: keyStats)
+                network: network, tokenUsage: tokenUsage, keyStats: keyStats,
+                weather: weather)
         }
     }
 
     private func middleSlotAccent(_ slot: MiddleSlot) -> CGColor {
         switch slot {
-        case .codex, .disk, .keyStats:
+        case .codex, .disk, .keyStats, .weather:
             return Color.cyan
         case .claude:
             return Color.claude
@@ -990,7 +1053,8 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
                                   agents: AgentsSnapshot, disk: DiskSnapshot,
                                   diskIO: DiskIOSnapshot, network: NetworkSnapshot,
                                   tokenUsage: TokenUsageSnapshot,
-                                  keyStats: KeyStatsSnapshot) {
+                                  keyStats: KeyStatsSnapshot,
+                                  weather: WeatherSnapshot) {
         switch slot {
         case .codex:
             renderAgentColumn(ctx, x: x, w: w, py: py,
@@ -1006,6 +1070,9 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
         case .network:
             renderNetworkColumn(ctx, x: x, w: w, py: py, ph: ph,
                                 network: network)
+        case .weather:
+            renderWeatherColumn(
+                ctx, x: x, w: w, py: py, ph: ph, weather: weather)
         case .keyStats:
             renderKeyStatsColumn(ctx, x: x, w: w, py: py, ph: ph,
                                  stats: keyStats)
@@ -1049,6 +1116,53 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
             Draw.text(ctx, row.1, x: Int(CGFloat(x + w) - valueW), y: y - 3,
                       font: valueFont, color: row.2)
             y += 45
+        }
+    }
+
+    private func renderWeatherColumn(
+        _ ctx: CGContext, x: Int, w: Int, py: Int, ph: Int,
+        weather: WeatherSnapshot
+    ) {
+        Draw.text(ctx, "WEATHER", x: x, y: py + 14,
+                  font: Fonts.system(24, weight: .bold), color: Color.cyan)
+
+        guard weather.available else {
+            Draw.centeredText(ctx, "请在设置中填写彩云天气 Token",
+                              cx: x + w / 2, y: py + ph / 2 - 10,
+                              font: Fonts.system(18), color: Color.textD)
+            return
+        }
+
+        Draw.text(ctx, weather.city, x: x, y: py + 62,
+                  font: Fonts.system(18, weight: .medium), color: Color.textL)
+        Draw.text(ctx, String(format: "%.0f°", weather.temperature),
+                  x: x, y: py + 98,
+                  font: Fonts.system(66, weight: .bold), color: Color.textW)
+        Draw.text(ctx, weather.condition, x: x, y: py + 180,
+                  font: Fonts.system(28, weight: .semibold), color: Color.cyan)
+
+        if let high = weather.highTemperature,
+           let low = weather.lowTemperature {
+            Draw.text(ctx, String(format: "最高 %.0f°  最低 %.0f°", high, low),
+                      x: x, y: py + 228,
+                      font: Fonts.system(19), color: Color.textL)
+        }
+
+        let rows = [
+            ("体感", String(format: "%.0f°", weather.apparentTemperature)),
+            ("湿度", "\(weather.humidity)%"),
+            ("风速", String(format: "%.1f km/h", weather.windSpeed)),
+        ]
+        var rowY = py + 285
+        for (label, value) in rows {
+            Draw.text(ctx, label, x: x, y: rowY,
+                      font: Fonts.system(18), color: Color.textL)
+            let valueFont = Fonts.system(22, weight: .semibold)
+            let valueWidth = (value as NSString).size(
+                withAttributes: [.font: valueFont]).width
+            Draw.text(ctx, value, x: Int(CGFloat(x + w) - valueWidth),
+                      y: rowY - 3, font: valueFont, color: Color.textW)
+            rowY += 48
         }
     }
 

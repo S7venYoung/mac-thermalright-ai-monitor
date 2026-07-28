@@ -26,6 +26,7 @@ enum MiddleSlot: String, CaseIterable, Identifiable, Sendable {
     case claude = "Claude"
     case disk = "Disk"
     case network = "Network"
+    case weather = "Weather"
     case keyStats = "KeyStats"
 
     var id: String { rawValue }
@@ -36,6 +37,7 @@ enum MiddleSlot: String, CaseIterable, Identifiable, Sendable {
         case .claude: "Claude"
         case .disk: "磁盘"
         case .network: "网络"
+        case .weather: "天气"
         case .keyStats: "键鼠统计"
         }
     }
@@ -64,6 +66,16 @@ final class AppState {
         UserDefaults.standard.object(forKey: "screenOffMinutes") as? Int ?? 18 * 60
     var screenOnMinutes =
         UserDefaults.standard.object(forKey: "screenOnMinutes") as? Int ?? 9 * 60
+    var weatherCity =
+        UserDefaults.standard.string(forKey: "weatherCity") ?? "上海"
+    var caiyunToken =
+        UserDefaults.standard.string(forKey: "caiyunToken") ?? ""
+    var weatherLongitude =
+        UserDefaults.standard.object(forKey: "weatherLongitude") as? Double
+            ?? 121.4737
+    var weatherLatitude =
+        UserDefaults.standard.object(forKey: "weatherLatitude") as? Double
+            ?? 31.2304
     var middleLeft: MiddleSlot =
         MiddleSlot(rawValue: UserDefaults.standard.string(
             forKey: "middleLeftSlot") ?? "") ?? .codex
@@ -112,7 +124,10 @@ final class AppState {
                   interval: refreshInterval, rotate: rotateDisplay,
                   screenScheduleEnabled: screenScheduleEnabled,
                   screenOffMinutes: screenOffMinutes,
-                  screenOnMinutes: screenOnMinutes)
+                  screenOnMinutes: screenOnMinutes,
+                  weatherCity: weatherCity, caiyunToken: caiyunToken,
+                  weatherLongitude: weatherLongitude,
+                  weatherLatitude: weatherLatitude)
     }
 
     func stop() {
@@ -144,13 +159,22 @@ final class AppState {
             screenScheduleEnabled, forKey: "screenScheduleEnabled")
         UserDefaults.standard.set(screenOffMinutes, forKey: "screenOffMinutes")
         UserDefaults.standard.set(screenOnMinutes, forKey: "screenOnMinutes")
+        UserDefaults.standard.set(weatherCity, forKey: "weatherCity")
+        UserDefaults.standard.set(caiyunToken, forKey: "caiyunToken")
+        UserDefaults.standard.set(
+            weatherLongitude, forKey: "weatherLongitude")
+        UserDefaults.standard.set(weatherLatitude, forKey: "weatherLatitude")
         engine?.updateSettings(set: currentSet, middleLeft: middleLeft,
                                middleCenter: middleCenter, middleRight: middleRight,
                                brightness: brightness, interval: refreshInterval,
                                rotate: rotateDisplay,
                                screenScheduleEnabled: screenScheduleEnabled,
                                screenOffMinutes: screenOffMinutes,
-                               screenOnMinutes: screenOnMinutes)
+                               screenOnMinutes: screenOnMinutes,
+                               weatherCity: weatherCity,
+                               caiyunToken: caiyunToken,
+                               weatherLongitude: weatherLongitude,
+                               weatherLatitude: weatherLatitude)
     }
 
     /// Latest rendered frame for the on-Mac preview window
@@ -195,6 +219,10 @@ final class DisplayEngine: @unchecked Sendable {
     private var screenScheduleEnabled = false
     private var screenOffMinutes = 18 * 60
     private var screenOnMinutes = 9 * 60
+    private var weatherCity = "上海"
+    private var caiyunToken = ""
+    private var weatherLongitude = 121.4737
+    private var weatherLatitude = 31.2304
 
     // Renderers
     private let monitorRenderer = MonitorRenderer()
@@ -207,7 +235,9 @@ final class DisplayEngine: @unchecked Sendable {
                middleCenter: MiddleSlot, middleRight: MiddleSlot,
                brightness: Int, interval: Double, rotate: Bool,
                screenScheduleEnabled: Bool, screenOffMinutes: Int,
-               screenOnMinutes: Int) {
+               screenOnMinutes: Int, weatherCity: String,
+               caiyunToken: String, weatherLongitude: Double,
+               weatherLatitude: Double) {
         appActive = true
         self.currentSet = set
         self.middleLeft = middleLeft
@@ -219,8 +249,15 @@ final class DisplayEngine: @unchecked Sendable {
         self.screenScheduleEnabled = screenScheduleEnabled
         self.screenOffMinutes = screenOffMinutes
         self.screenOnMinutes = screenOnMinutes
+        self.weatherCity = weatherCity
+        self.caiyunToken = caiyunToken
+        self.weatherLongitude = weatherLongitude
+        self.weatherLatitude = weatherLatitude
         monitorRenderer.setMiddleSlots(
             left: middleLeft, center: middleCenter, right: middleRight)
+        monitorRenderer.setWeatherConfig(
+            city: weatherCity, token: caiyunToken,
+            longitude: weatherLongitude, latitude: weatherLatitude)
 
         usbQueue.async { [weak self] in
             guard let self else { return }
@@ -260,7 +297,9 @@ final class DisplayEngine: @unchecked Sendable {
                         brightness: Int,
                         interval: Double, rotate: Bool,
                         screenScheduleEnabled: Bool, screenOffMinutes: Int,
-                        screenOnMinutes: Int) {
+                        screenOnMinutes: Int, weatherCity: String,
+                        caiyunToken: String, weatherLongitude: Double,
+                        weatherLatitude: Double) {
         log("[Engine] Settings updated: set=\(set.rawValue), middle=\(middleLeft.rawValue)+\(middleCenter.rawValue)+\(middleRight.rawValue), brightness=\(brightness), interval=\(interval), rotate=\(rotate)")
         self.currentSet = set
         self.middleLeft = middleLeft
@@ -272,8 +311,15 @@ final class DisplayEngine: @unchecked Sendable {
         self.screenScheduleEnabled = screenScheduleEnabled
         self.screenOffMinutes = screenOffMinutes
         self.screenOnMinutes = screenOnMinutes
+        self.weatherCity = weatherCity
+        self.caiyunToken = caiyunToken
+        self.weatherLongitude = weatherLongitude
+        self.weatherLatitude = weatherLatitude
         monitorRenderer.setMiddleSlots(
             left: middleLeft, center: middleCenter, right: middleRight)
+        monitorRenderer.setWeatherConfig(
+            city: weatherCity, token: caiyunToken,
+            longitude: weatherLongitude, latitude: weatherLatitude)
 
         usbQueue.async { [weak self] in
             guard let self, self.appActive, !self.running,

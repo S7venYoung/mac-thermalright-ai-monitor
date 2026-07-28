@@ -107,6 +107,25 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
             }
 
+            Section("天气") {
+                SecureField("彩云天气 Token", text: $state.caiyunToken)
+                TextField("显示名称", text: $state.weatherCity)
+                HStack {
+                    TextField(
+                        "经度", value: $state.weatherLongitude,
+                        format: .number.precision(.fractionLength(4)))
+                    TextField(
+                        "纬度", value: $state.weatherLatitude,
+                        format: .number.precision(.fractionLength(4)))
+                }
+                Button("保存并刷新天气") {
+                    state.applySettings()
+                }
+                Text("使用彩云天气 v2.6 综合接口，每约 10 分钟更新一次。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             Section("亮度") {
                 HStack {
                     Slider(value: brightnessBinding, in: 1...10, step: 1) {
