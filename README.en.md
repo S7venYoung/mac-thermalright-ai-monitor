@@ -121,13 +121,17 @@ context when an agent hasn't run yet today.
 
 ## Privacy
 
-Everything is local and read-only. No telemetry, no network calls, nothing leaves your Mac.
+Everything stays local. System and agent data are read-only. When the integrated
+KeyStats panel is enabled, MacTR requires Accessibility permission and stores only
+daily aggregate key, click, movement, and scroll counts. It never stores typed text,
+key order, pointer coordinates, or click locations. No telemetry or network calls.
 
 ## Credits
 
 - [beret21/MacTR](https://github.com/beret21/MacTR) — the original macOS driver this is built on
 - [thermalright-trcc-linux](https://github.com/Lexonight1/thermalright-trcc-linux) — LY Bulk protocol reverse engineering
 - [fermion-star/apple_sensors](https://github.com/fermion-star/apple_sensors) — IOHIDEventSystemClient temperature reading
+- [debugtheworldbot/keyStats](https://github.com/debugtheworldbot/keyStats) — implementation reference for integrated aggregate keyboard and mouse statistics
 - [kuroni/bongocat-osu](https://github.com/kuroni/bongocat-osu) — Bongo Cat sprite
 - Pikachu artwork via [PokeAPI/sprites](https://github.com/PokeAPI/sprites) — Pokémon is © Nintendo / Creatures / GAME FREAK; included here as a cosmetic homage only
 

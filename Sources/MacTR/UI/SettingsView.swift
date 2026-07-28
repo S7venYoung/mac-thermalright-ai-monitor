@@ -84,6 +84,15 @@ struct SettingsView: View {
                     state.applySettings()
                 }
 
+                Picker("Center", selection: $state.middleCenter) {
+                    ForEach(MiddleSlot.allCases) { slot in
+                        Text(slot.rawValue).tag(slot)
+                    }
+                }
+                .onChange(of: state.middleCenter) {
+                    state.applySettings()
+                }
+
                 Picker("Right", selection: $state.middleRight) {
                     ForEach(MiddleSlot.allCases) { slot in
                         Text(slot.rawValue).tag(slot)
@@ -93,7 +102,7 @@ struct SettingsView: View {
                     state.applySettings()
                 }
 
-                Text("Both panels stay fixed and can be combined freely.")
+                Text("All three panels stay fixed and can be combined freely.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

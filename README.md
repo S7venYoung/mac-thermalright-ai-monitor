@@ -114,13 +114,16 @@ Token 总量按本地自然日统计;某个 agent 今天还没跑过时,面板�
 
 ## 隐私
 
-一切都在本地、只读。无遥测、无网络请求,没有任何数据离开你的 Mac。
+一切都在本地。系统与 Agent 数据只读;启用内置 KeyStats 面板时,MacTR
+需要辅助功能权限并只保存每日按键、点击、移动与滚动的聚合计数。它不记录输入文本、
+按键顺序、鼠标坐标或点击位置。无遥测、无网络请求,没有任何数据离开你的 Mac。
 
 ## 致谢
 
 - [beret21/MacTR](https://github.com/beret21/MacTR) —— 本项目所基于的原版 macOS 驱动
 - [thermalright-trcc-linux](https://github.com/Lexonight1/thermalright-trcc-linux) —— LY Bulk 协议逆向
 - [fermion-star/apple_sensors](https://github.com/fermion-star/apple_sensors) —— IOHIDEventSystemClient 温度读取
+- [debugtheworldbot/keyStats](https://github.com/debugtheworldbot/keyStats) —— 内置键鼠聚合统计的实现参考
 - [kuroni/bongocat-osu](https://github.com/kuroni/bongocat-osu) —— Bongo Cat 精灵图
 - 皮卡丘立绘来自 [PokeAPI/sprites](https://github.com/PokeAPI/sprites) —— 宝可梦版权归 © 任天堂 / Creatures / GAME FREAK 所有,此处仅作装饰性致敬
 

@@ -13,6 +13,7 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
     private let collector = SystemMetricsCollector()
     private let agentCollector = AgentUsageCollector()
     private let tokenCollector = TokenUsageCollector()
+    private let keyStatsCollector = KeyStatsCollector()
 
     // Background metrics collection — decoupled from frame loop for consistent refresh
     private let metricsQueue = DispatchQueue(label: "com.thermalvision.metrics")
@@ -29,11 +30,13 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
     private var _diskIO: DiskIOSnapshot?
     private var _network: NetworkSnapshot?
     private var _tokenUsage: TokenUsageSnapshot?
+    private var _keyStats: KeyStatsSnapshot?
 
     // User-selected fixed middle panel
     private let panelLock = NSLock()
     private var middleLeft: MiddleSlot = .codex
-    private var middleRight: MiddleSlot = .disk
+    private var middleCenter: MiddleSlot = .disk
+    private var middleRight: MiddleSlot = .network
 
     // Reusable CGContext — avoids allocating 3.6MB every 0.5s (prevents CG raster data leak)
     private var reusableCtx: CGContext?
@@ -67,6 +70,12 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
         metricsRunning = true
         lock.unlock()
         log("[Metrics] Starting collection...")
+        let configuredSlots = selectedMiddleSlots()
+        if configuredSlots.0 == .keyStats
+            || configuredSlots.1 == .keyStats
+            || configuredSlots.2 == .keyStats {
+            keyStatsCollector.start(requestPermission: true)
+        }
         // First pass: prime CPU ticks (deltas will be zero)
         let cpu0 = collector.collectCPU()
         let mem = collector.collectMemory()
@@ -77,11 +86,13 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
         let diskIO = collector.collectDiskIO()
         let network = collector.collectNetwork()
         let tokenUsage = tokenCollector.collect()
+        let keyStats = keyStatsCollector.collect()
         lock.lock()
         _cpu = cpu0; _mem = mem
         _temp = temp; _agents = agents; _sys = sys
         _disk = disk; _diskIO = diskIO; _network = network
         _tokenUsage = tokenUsage.isEmpty ? nil : tokenUsage
+        _keyStats = keyStats
         lock.unlock()
 
         // Second pass: get real CPU deltas
@@ -98,19 +109,27 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
     func stopMetrics() {
         log("[Metrics] Stopping collection")
         metricsRunning = false
+        keyStatsCollector.stop()
     }
 
-    func setMiddleSlots(left: MiddleSlot, right: MiddleSlot) {
+    func setMiddleSlots(left: MiddleSlot, center: MiddleSlot, right: MiddleSlot) {
         panelLock.lock()
         middleLeft = left
+        middleCenter = center
         middleRight = right
         panelLock.unlock()
+
+        if left == .keyStats || center == .keyStats || right == .keyStats {
+            keyStatsCollector.start(requestPermission: true)
+        } else {
+            keyStatsCollector.stop()
+        }
     }
 
-    private func selectedMiddleSlots() -> (MiddleSlot, MiddleSlot) {
+    private func selectedMiddleSlots() -> (MiddleSlot, MiddleSlot, MiddleSlot) {
         panelLock.lock()
         defer { panelLock.unlock() }
-        return (middleLeft, middleRight)
+        return (middleLeft, middleCenter, middleRight)
     }
 
     /// True when a column has a live animation (breathing while working, or the
@@ -122,8 +141,10 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
         if let c = _cpu, c.total > 55 { return true }
         guard let a = _agents else { return false }
         let slots = selectedMiddleSlots()
-        let codexVisible = slots.0 == .codex || slots.1 == .codex
-        let claudeVisible = slots.0 == .claude || slots.1 == .claude
+        let codexVisible =
+            slots.0 == .codex || slots.1 == .codex || slots.2 == .codex
+        let claudeVisible =
+            slots.0 == .claude || slots.1 == .claude || slots.2 == .claude
         return (codexVisible && (a.codex.isWorking || a.codex.needsAttention))
             || (claudeVisible && (a.claude.isWorking || a.claude.needsAttention))
     }
@@ -149,9 +170,11 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
                 let diskIO = collector.collectDiskIO()
                 let network = collector.collectNetwork()
                 let sys = collector.collectSystem()
+                let keyStats = keyStatsCollector.collect()
                 lock.lock()
                 _temp = temp; _agents = agents; _sys = sys
                 _disk = disk; _diskIO = diskIO; _network = network
+                _keyStats = keyStats
                 lock.unlock()
                 slowTick = 0
             }
@@ -261,9 +284,10 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
         Draw.gradientBackground(ctx)
         renderCPU(ctx, cpu: cpu, temp: temp, agentsBusy: true)
         let slots = selectedMiddleSlots()
-        renderMiddleSlots(ctx, left: slots.0, right: slots.1, agents: agents,
+        renderMiddleSlots(ctx, left: slots.0, center: slots.1,
+                          right: slots.2, agents: agents,
                           disk: disk, diskIO: diskIO, network: network,
-                          tokenUsage: tokenUsage)
+                          tokenUsage: tokenUsage, keyStats: .demo)
         renderMemory(ctx, mem: mem, sys: sys, agentsBusy: true)
         return ctx.makeImage()
     }
@@ -282,8 +306,10 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
         var agents: AgentsSnapshot
         let disk: DiskSnapshot, diskIO: DiskIOSnapshot, network: NetworkSnapshot
         let tokenUsage: TokenUsageSnapshot
+        let keyStats: KeyStatsSnapshot
         if demoMode {
             (cpu, mem, temp, sys, agents, disk, diskIO, network, tokenUsage) = demoData()
+            keyStats = .demo
         } else {
             // Read cached metrics (never blocks — uses latest available values)
             lock.lock()
@@ -298,6 +324,7 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
                 entries: [], totalInput: 0, totalOutput: 0,
                 totalCacheRead: 0, totalCacheWrite: 0,
                 totalMessages: 0, totalCost: 0, processingTimeMs: 0)
+            keyStats = _keyStats ?? .unavailable
             lock.unlock()
         }
 
@@ -329,16 +356,19 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
 
         // Panels
         let slots = selectedMiddleSlots()
-        let codexVisible = slots.0 == .codex || slots.1 == .codex
-        let claudeVisible = slots.0 == .claude || slots.1 == .claude
+        let codexVisible =
+            slots.0 == .codex || slots.1 == .codex || slots.2 == .codex
+        let claudeVisible =
+            slots.0 == .claude || slots.1 == .claude || slots.2 == .claude
         let agentsBusy =
             (codexVisible && (agents.codex.isWorking || agents.codex.needsAttention))
             || (claudeVisible && (agents.claude.isWorking || agents.claude.needsAttention))
         renderCPU(ctx, cpu: cpu, temp: temp, agentsBusy: agentsBusy)
 
-        renderMiddleSlots(ctx, left: slots.0, right: slots.1, agents: agents,
+        renderMiddleSlots(ctx, left: slots.0, center: slots.1,
+                          right: slots.2, agents: agents,
                           disk: disk, diskIO: diskIO, network: network,
-                          tokenUsage: tokenUsage)
+                          tokenUsage: tokenUsage, keyStats: keyStats)
 
         renderMemory(ctx, mem: mem, sys: sys, agentsBusy: agentsBusy)
 
@@ -949,35 +979,44 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
     // MARK: - AI Agents Panel (triple width)
 
     private func renderMiddleSlots(_ ctx: CGContext, left: MiddleSlot,
-                                   right: MiddleSlot, agents: AgentsSnapshot,
+                                   center: MiddleSlot, right: MiddleSlot,
+                                   agents: AgentsSnapshot,
                                    disk: DiskSnapshot, diskIO: DiskIOSnapshot,
                                    network: NetworkSnapshot,
-                                   tokenUsage: TokenUsageSnapshot) {
-        let x = Layout.panelX(1)
-        let pw = Layout.panelWidth * 3 + Layout.gap * 2
+                                   tokenUsage: TokenUsageSnapshot,
+                                   keyStats: KeyStatsSnapshot) {
         let py = Layout.panelY
         let ph = Layout.panelHeight
 
-        Draw.panel(ctx, x: x, y: py, w: pw, h: ph, accent: Color.purple)
+        let slots = [left, center, right]
+        for (offset, slot) in slots.enumerated() {
+            let panelX = Layout.panelX(offset + 1)
+            Draw.panel(ctx, x: panelX, y: py, w: Layout.panelWidth, h: ph,
+                       accent: middleSlotAccent(slot))
+            renderMiddleSlot(
+                ctx, slot: slot, x: panelX + 20, w: Layout.panelWidth - 40,
+                py: py, ph: ph, agents: agents, disk: disk, diskIO: diskIO,
+                network: network, tokenUsage: tokenUsage, keyStats: keyStats)
+        }
+    }
 
-        let midX = x + pw / 2
-        Draw.line(ctx, from: CGPoint(x: midX, y: py + 18),
-                  to: CGPoint(x: midX, y: py + ph - 14), color: Color.border)
-
-        let colW = pw / 2 - 40
-        renderMiddleSlot(ctx, slot: left, x: x + 22, w: colW, py: py, ph: ph,
-                         agents: agents, disk: disk, diskIO: diskIO,
-                         network: network, tokenUsage: tokenUsage)
-        renderMiddleSlot(ctx, slot: right, x: midX + 18, w: colW, py: py, ph: ph,
-                         agents: agents, disk: disk, diskIO: diskIO,
-                         network: network, tokenUsage: tokenUsage)
+    private func middleSlotAccent(_ slot: MiddleSlot) -> CGColor {
+        switch slot {
+        case .codex, .disk, .keyStats:
+            return Color.cyan
+        case .claude, .tokenUsage:
+            return Color.claude
+        case .network:
+            return Color.magenta
+        }
     }
 
     private func renderMiddleSlot(_ ctx: CGContext, slot: MiddleSlot,
                                   x: Int, w: Int, py: Int, ph: Int,
                                   agents: AgentsSnapshot, disk: DiskSnapshot,
                                   diskIO: DiskIOSnapshot, network: NetworkSnapshot,
-                                  tokenUsage: TokenUsageSnapshot) {
+                                  tokenUsage: TokenUsageSnapshot,
+                                  keyStats: KeyStatsSnapshot) {
         switch slot {
         case .codex:
             renderAgentColumn(ctx, x: x, w: w, py: py,
@@ -996,6 +1035,9 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
         case .tokenUsage:
             renderTokenColumn(ctx, x: x, w: w, py: py, ph: ph,
                               tokenUsage: tokenUsage)
+        case .keyStats:
+            renderKeyStatsColumn(ctx, x: x, w: w, py: py, ph: ph,
+                                 stats: keyStats)
         }
     }
 
@@ -1037,6 +1079,93 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
                       font: valueFont, color: row.2)
             y += 45
         }
+    }
+
+    private func renderKeyStatsColumn(_ ctx: CGContext, x: Int, w: Int,
+                                      py: Int, ph: Int,
+                                      stats: KeyStatsSnapshot) {
+        Draw.text(ctx, "KEY STATS", x: x, y: py + 14,
+                  font: Fonts.system(24, weight: .bold), color: Color.cyan)
+
+        guard stats.available else {
+            Draw.centeredText(ctx, "Allow MacTR Accessibility",
+                              cx: x + w / 2, y: py + ph / 2 - 16,
+                              font: Fonts.system(20), color: Color.textD)
+            Draw.centeredText(ctx, "Then restart MacTR",
+                              cx: x + w / 2, y: py + ph / 2 + 18,
+                              font: Fonts.system(16), color: Color.textL)
+            return
+        }
+
+        Draw.text(ctx, "⌨  Key Presses", x: x, y: py + 78,
+                  font: Fonts.system(19), color: Color.textL)
+        Draw.text(ctx, formatCompact(stats.keyPresses), x: x, y: py + 108,
+                  font: Fonts.system(54, weight: .bold), color: Color.textW)
+
+        let clickX = x + w / 2 + 10
+        Draw.text(ctx, "●  Clicks", x: clickX, y: py + 78,
+                  font: Fonts.system(19), color: Color.textL)
+        Draw.text(ctx, formatCompact(stats.totalClicks),
+                  x: clickX, y: py + 108,
+                  font: Fonts.system(54, weight: .bold), color: Color.green)
+
+        Draw.line(ctx, from: CGPoint(x: x, y: py + 184),
+                  to: CGPoint(x: x + w, y: py + 184), color: Color.border)
+
+        let distance = formatDistance(stats.mouseDistanceMeters)
+        let scroll = formatScroll(stats.scrollDistancePixels)
+        let rows: [(String, String, CGColor)] = [
+            ("Mouse movement", distance, Color.cyan),
+            ("Scroll", scroll, Color.purple),
+            ("Left / Right", "\(formatCompact(stats.leftClicks)) / \(formatCompact(stats.rightClicks))", Color.textW),
+            ("Peak KPS", "\(stats.peakKPS)", Color.orange),
+            ("Peak CPS", "\(stats.peakCPS)", Color.green),
+        ]
+
+        var y = py + 215
+        for row in rows {
+            Draw.text(ctx, row.0, x: x, y: y,
+                      font: Fonts.system(18), color: Color.textL)
+            let valueFont = Fonts.system(22, weight: .semibold)
+            let valueW = (row.1 as NSString).size(
+                withAttributes: [.font: valueFont]).width
+            Draw.text(ctx, row.1, x: Int(CGFloat(x + w) - valueW), y: y - 2,
+                      font: valueFont, color: row.2)
+            y += 43
+        }
+    }
+
+    private func formatCompact(_ value: Int) -> String {
+        let n = Double(max(0, value))
+        if n >= 1_000_000 {
+            return String(format: n < 10_000_000 ? "%.2fM" : "%.1fM",
+                          n / 1_000_000)
+        }
+        if n >= 1_000 {
+            return String(format: n < 100_000 ? "%.1fK" : "%.0fK",
+                          n / 1_000)
+        }
+        return "\(value)"
+    }
+
+    private func formatDistance(_ meters: Double) -> String {
+        if meters >= 1_000 {
+            return String(format: "%.2f km", meters / 1_000)
+        }
+        if meters >= 1 {
+            return String(format: "%.1f m", meters)
+        }
+        return String(format: "%.0f cm", meters * 100)
+    }
+
+    private func formatScroll(_ pixels: Double) -> String {
+        if pixels >= 1_000_000 {
+            return String(format: "%.2f MPx", pixels / 1_000_000)
+        }
+        if pixels >= 1_000 {
+            return String(format: "%.1f kPx", pixels / 1_000)
+        }
+        return String(format: "%.0f px", pixels)
     }
 
     private func renderAgents(_ ctx: CGContext, agents: AgentsSnapshot) {

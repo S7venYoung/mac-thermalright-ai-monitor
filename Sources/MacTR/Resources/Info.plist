@@ -24,6 +24,8 @@
 	<true/>
 	<key>NSHighResolutionCapable</key>
 	<true/>
+	<key>NSInputMonitoringUsageDescription</key>
+	<string>MacTR counts aggregate keyboard and mouse activity for the local KeyStats display. It does not record typed text, key order, pointer coordinates, or click locations.</string>
 	<key>SUEnableAutomaticChecks</key>
 	<true/>
 	<key>SUFeedURL</key>
