@@ -232,12 +232,12 @@ final class WeatherCollector: @unchecked Sendable {
     private static func airQualityName(_ aqi: Int?) -> String {
         guard let aqi else { return "" }
         switch aqi {
-        case ...50: "空气优"
-        case ...100: "空气良"
-        case ...150: "空气轻度污染"
-        case ...200: "空气中度污染"
-        case ...300: "空气重度污染"
-        default: "空气严重污染"
+        case ...50: return "空气优"
+        case ...100: return "空气良"
+        case ...150: return "空气轻度污染"
+        case ...200: return "空气中度污染"
+        case ...300: return "空气重度污染"
+        default: return "空气严重污染"
         }
     }
 
