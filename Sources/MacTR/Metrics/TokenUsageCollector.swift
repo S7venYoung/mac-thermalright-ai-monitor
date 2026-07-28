@@ -28,6 +28,13 @@ struct TokenUsageSnapshot: Sendable {
 final class TokenUsageCollector: @unchecked Sendable {
 
     func collect() -> TokenUsageSnapshot {
+        // Some tokscale installations invoke Apple's /usr/bin/git internally.
+        // Without Xcode or Command Line Tools, that stub repeatedly opens the
+        // developer-tools installer instead of returning useful token data.
+        guard Self.hasDeveloperTools else {
+            return emptySnapshot()
+        }
+
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
         process.arguments = ["tokscale", "--today", "--json"]
@@ -50,6 +57,25 @@ final class TokenUsageCollector: @unchecked Sendable {
             return emptySnapshot()
         }
     }
+
+    private static let hasDeveloperTools: Bool = {
+        let fileManager = FileManager.default
+        if fileManager.fileExists(
+            atPath: "/Library/Developer/CommandLineTools/usr/bin/git") {
+            return true
+        }
+
+        guard let apps = try? fileManager.contentsOfDirectory(
+            atPath: "/Applications") else {
+            return false
+        }
+        return apps.contains { name in
+            name.hasPrefix("Xcode")
+                && name.hasSuffix(".app")
+                && fileManager.fileExists(
+                    atPath: "/Applications/\(name)/Contents/Developer/usr/bin/git")
+        }
+    }()
 
     private func emptySnapshot() -> TokenUsageSnapshot {
         TokenUsageSnapshot(

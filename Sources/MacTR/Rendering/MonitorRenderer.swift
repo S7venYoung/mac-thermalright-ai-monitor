@@ -83,13 +83,14 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
         let disk = collector.collectDisk()
         let diskIO = collector.collectDiskIO()
         let network = collector.collectNetwork()
-        let tokenUsage = tokenCollector.collect()
+        let tokenUsage = isTokenUsageVisible()
+            ? tokenCollector.collect() : nil
         let keyStats = keyStatsCollector.collect()
         lock.lock()
         _cpu = cpu0; _mem = mem
         _temp = temp; _agents = agents; _sys = sys
         _disk = disk; _diskIO = diskIO; _network = network
-        _tokenUsage = tokenUsage.isEmpty ? nil : tokenUsage
+        _tokenUsage = tokenUsage.flatMap { $0.isEmpty ? nil : $0 }
         _keyStats = keyStats
         lock.unlock()
 
@@ -124,6 +125,13 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
         return (middleLeft, middleCenter, middleRight)
     }
 
+    private func isTokenUsageVisible() -> Bool {
+        let slots = selectedMiddleSlots()
+        return slots.0 == .tokenUsage
+            || slots.1 == .tokenUsage
+            || slots.2 == .tokenUsage
+    }
+
     /// True when a column has a live animation (breathing while working, or the
     /// done/waiting blink) — the frame loop uses this to raise the LCD frame rate
     /// only while something is actually moving, and idle low otherwise.
@@ -149,8 +157,9 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
             // Fast metrics every tick
             let cpu = collector.collectCPU()
             let mem = collector.collectMemory()
+            let keyStats = keyStatsCollector.collect()
             lock.lock()
-            _cpu = cpu; _mem = mem
+            _cpu = cpu; _mem = mem; _keyStats = keyStats
             lock.unlock()
 
             // Slow metrics every 4th tick (~2s)
@@ -162,11 +171,9 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
                 let diskIO = collector.collectDiskIO()
                 let network = collector.collectNetwork()
                 let sys = collector.collectSystem()
-                let keyStats = keyStatsCollector.collect()
                 lock.lock()
                 _temp = temp; _agents = agents; _sys = sys
                 _disk = disk; _diskIO = diskIO; _network = network
-                _keyStats = keyStats
                 lock.unlock()
                 slowTick = 0
             }
@@ -174,11 +181,13 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
             // Token usage every 6th tick (~3s, tokscale takes ~1s)
             tokenTick += 1
             if tokenTick >= 6 {
-                let tokenUsage = tokenCollector.collect()
-                if !tokenUsage.isEmpty {
-                    lock.lock()
-                    _tokenUsage = tokenUsage
-                    lock.unlock()
+                if isTokenUsageVisible() {
+                    let tokenUsage = tokenCollector.collect()
+                    if !tokenUsage.isEmpty {
+                        lock.lock()
+                        _tokenUsage = tokenUsage
+                        lock.unlock()
+                    }
                 }
                 tokenTick = 0
             }

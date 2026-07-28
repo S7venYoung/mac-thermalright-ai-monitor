@@ -71,6 +71,8 @@ final class KeyStatsCollector: @unchecked Sendable {
     private var eventRunLoop: CFRunLoop?
     private var starting = false
     private var tracking = false
+    private var shouldTrack = false
+    private var lastSaveAt: TimeInterval = 0
 
     init() {
         let today = Self.dayKey()
@@ -87,6 +89,7 @@ final class KeyStatsCollector: @unchecked Sendable {
 
     func start(requestPermission: Bool) {
         lock.lock()
+        shouldTrack = true
         guard !tracking, !starting else {
             lock.unlock()
             return
@@ -108,8 +111,9 @@ final class KeyStatsCollector: @unchecked Sendable {
 
     func stop() {
         lock.lock()
+        shouldTrack = false
         rolloverIfNeeded()
-        saveLocked()
+        saveLocked(force: true)
         let runLoop = eventRunLoop
         tracking = false
         starting = false
@@ -216,7 +220,13 @@ final class KeyStatsCollector: @unchecked Sendable {
             lock.lock()
             starting = false
             tracking = false
+            let retry = shouldTrack
             lock.unlock()
+            if retry {
+                eventQueue.asyncAfter(deadline: .now() + 2) { [weak self] in
+                    self?.retryEventTapIfNeeded()
+                }
+            }
             return
         }
 
@@ -232,6 +242,30 @@ final class KeyStatsCollector: @unchecked Sendable {
         CGEvent.tapEnable(tap: tap, enable: true)
         CFRunLoopRun()
         CFRunLoopRemoveSource(runLoop, source, .commonModes)
+
+        lock.lock()
+        eventTap = nil
+        eventRunLoop = nil
+        tracking = false
+        starting = false
+        let retry = shouldTrack
+        lock.unlock()
+        if retry {
+            eventQueue.asyncAfter(deadline: .now() + 2) { [weak self] in
+                self?.retryEventTapIfNeeded()
+            }
+        }
+    }
+
+    private func retryEventTapIfNeeded() {
+        lock.lock()
+        guard shouldTrack, !tracking, !starting else {
+            lock.unlock()
+            return
+        }
+        starting = true
+        lock.unlock()
+        runEventTap()
     }
 
     private static func updatePeak(
@@ -257,9 +291,12 @@ final class KeyStatsCollector: @unchecked Sendable {
         nextRollover = Self.nextMidnight()
     }
 
-    private func saveLocked() {
+    private func saveLocked(force: Bool = false) {
+        let now = ProcessInfo.processInfo.systemUptime
+        guard force || now - lastSaveAt >= 2 else { return }
         if let data = try? JSONEncoder().encode(state) {
             UserDefaults.standard.set(data, forKey: defaultsKey)
+            lastSaveAt = now
         }
     }
 
