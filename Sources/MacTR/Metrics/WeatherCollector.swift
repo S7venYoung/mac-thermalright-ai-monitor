@@ -17,13 +17,15 @@ struct WeatherSnapshot: Sendable {
     let windSpeed: Double
     let condition: String
     let icon: String
+    let airQuality: String
     let rainForecast: String
     let daily: [DailyWeatherForecast]
 
     static let unavailable = WeatherSnapshot(
         available: false, city: "", temperature: 0,
         apparentTemperature: 0, humidity: 0, windSpeed: 0,
-        condition: "", icon: "", rainForecast: "", daily: [])
+        condition: "", icon: "", airQuality: "",
+        rainForecast: "", daily: [])
 }
 
 private struct CaiyunResponse: Decodable {
@@ -32,11 +34,18 @@ private struct CaiyunResponse: Decodable {
             struct Wind: Decodable {
                 let speed: Double
             }
+            struct AirQuality: Decodable {
+                struct AQI: Decodable {
+                    let chn: Int
+                }
+                let aqi: AQI
+            }
             let temperature: Double
             let humidity: Double
             let skycon: String
             let wind: Wind
             let apparent_temperature: Double
+            let air_quality: AirQuality?
         }
         struct Daily: Decodable {
             struct Temperature: Decodable {
@@ -134,6 +143,11 @@ final class WeatherCollector: @unchecked Sendable {
                 highTemperature: item.max,
                 lowTemperature: item.min)
         }
+        let todaySkycon = result.daily?.skycon.first?.value
+        let displaySkycon =
+            Self.isAirQualitySkycon(realtime.skycon)
+                ? (todaySkycon ?? realtime.skycon)
+                : realtime.skycon
         let snapshot = WeatherSnapshot(
             available: true,
             city: city.isEmpty ? "当前位置" : city,
@@ -141,8 +155,10 @@ final class WeatherCollector: @unchecked Sendable {
             apparentTemperature: realtime.apparent_temperature,
             humidity: Int((realtime.humidity * 100).rounded()),
             windSpeed: realtime.wind.speed,
-            condition: Self.conditionName(realtime.skycon),
-            icon: Self.conditionIcon(realtime.skycon),
+            condition: Self.conditionName(displaySkycon),
+            icon: Self.conditionIcon(displaySkycon),
+            airQuality: Self.airQualityName(
+                realtime.air_quality?.aqi.chn),
             rainForecast:
                 result.minutely?.description
                     ?? result.forecast_keypoint
@@ -204,6 +220,24 @@ final class WeatherCollector: @unchecked Sendable {
         case "LIGHT_HAZE", "MODERATE_HAZE", "HEAVY_HAZE", "FOG": "≋"
         case "DUST", "SAND", "WIND": "≋"
         default: "•"
+        }
+    }
+
+    private static func isAirQualitySkycon(_ code: String) -> Bool {
+        code == "LIGHT_HAZE"
+            || code == "MODERATE_HAZE"
+            || code == "HEAVY_HAZE"
+    }
+
+    private static func airQualityName(_ aqi: Int?) -> String {
+        guard let aqi else { return "" }
+        switch aqi {
+        case ...50: "空气优"
+        case ...100: "空气良"
+        case ...150: "空气轻度污染"
+        case ...200: "空气中度污染"
+        case ...300: "空气重度污染"
+        default: "空气严重污染"
         }
     }
 

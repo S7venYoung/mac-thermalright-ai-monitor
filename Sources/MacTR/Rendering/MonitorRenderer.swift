@@ -1140,7 +1140,10 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
                   font: Fonts.system(58, weight: .bold), color: Color.textW)
         Draw.text(ctx, weather.icon, x: x + w - 88, y: py + 78,
                   font: Fonts.system(72), color: Color.orange)
-        Draw.text(ctx, weather.condition, x: x, y: py + 158,
+        let conditionLine = weather.airQuality.isEmpty
+            ? weather.condition
+            : "\(weather.condition) · \(weather.airQuality)"
+        Draw.text(ctx, conditionLine, x: x, y: py + 158,
                   font: Fonts.system(24, weight: .semibold), color: Color.cyan)
         Draw.text(
             ctx,
