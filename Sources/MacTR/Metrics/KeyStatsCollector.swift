@@ -96,7 +96,7 @@ final class KeyStatsCollector: @unchecked Sendable {
 
         if requestPermission {
             let options = [
-                kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true
+                "AXTrustedCheckOptionPrompt": true
             ] as CFDictionary
             _ = AXIsProcessTrustedWithOptions(options)
         }
