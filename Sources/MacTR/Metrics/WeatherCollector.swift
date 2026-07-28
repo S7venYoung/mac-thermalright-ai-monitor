@@ -17,12 +17,13 @@ struct WeatherSnapshot: Sendable {
     let windSpeed: Double
     let condition: String
     let icon: String
+    let rainForecast: String
     let daily: [DailyWeatherForecast]
 
     static let unavailable = WeatherSnapshot(
         available: false, city: "", temperature: 0,
         apparentTemperature: 0, humidity: 0, windSpeed: 0,
-        condition: "", icon: "", daily: [])
+        condition: "", icon: "", rainForecast: "", daily: [])
 }
 
 private struct CaiyunResponse: Decodable {
@@ -50,8 +51,13 @@ private struct CaiyunResponse: Decodable {
             let temperature: [Temperature]
             let skycon: [Skycon]
         }
+        struct Minutely: Decodable {
+            let description: String?
+        }
         let realtime: Realtime
         let daily: Daily?
+        let minutely: Minutely?
+        let forecast_keypoint: String?
     }
     let status: String
     let result: Result?
@@ -137,6 +143,10 @@ final class WeatherCollector: @unchecked Sendable {
             windSpeed: realtime.wind.speed,
             condition: Self.conditionName(realtime.skycon),
             icon: Self.conditionIcon(realtime.skycon),
+            rainForecast:
+                result.minutely?.description
+                    ?? result.forecast_keypoint
+                    ?? "暂无降雨预测",
             daily: daily)
         cacheKey = key
         cachedSnapshot = snapshot

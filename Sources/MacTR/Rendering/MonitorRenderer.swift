@@ -1138,8 +1138,8 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
         Draw.text(ctx, String(format: "%.0f°", weather.temperature),
                   x: x, y: py + 90,
                   font: Fonts.system(58, weight: .bold), color: Color.textW)
-        Draw.text(ctx, weather.icon, x: x + w - 62, y: py + 90,
-                  font: Fonts.system(48), color: Color.orange)
+        Draw.text(ctx, weather.icon, x: x + w - 88, y: py + 78,
+                  font: Fonts.system(72), color: Color.orange)
         Draw.text(ctx, weather.condition, x: x, y: py + 158,
                   font: Fonts.system(24, weight: .semibold), color: Color.cyan)
         Draw.text(
@@ -1151,7 +1151,13 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
             x: x, y: py + 194,
             font: Fonts.system(16), color: Color.textL)
 
-        var rowY = py + 232
+        let rainFont = Fonts.system(15, weight: .medium)
+        Draw.text(
+            ctx,
+            truncate("降雨：\(weather.rainForecast)", font: rainFont, maxWidth: w),
+            x: x, y: py + 222, font: rainFont, color: Color.green)
+
+        var rowY = py + 252
         for (index, forecast) in weather.daily.prefix(7).enumerated() {
             let day = index == 0 ? "今天" : forecast.day
             Draw.text(ctx, day, x: x, y: rowY,
@@ -1169,7 +1175,7 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
                 ctx, temperatures,
                 x: Int(CGFloat(x + w) - temperatureWidth), y: rowY,
                 font: temperatureFont, color: Color.textW)
-            rowY += 35
+            rowY += 30
         }
     }
 
