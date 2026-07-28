@@ -12,7 +12,6 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
 
     private let collector = SystemMetricsCollector()
     private let agentCollector = AgentUsageCollector()
-    private let tokenCollector = TokenUsageCollector()
     private let keyStatsCollector = KeyStatsCollector()
 
     // Background metrics collection — decoupled from frame loop for consistent refresh
@@ -29,7 +28,6 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
     private var _disk: DiskSnapshot?
     private var _diskIO: DiskIOSnapshot?
     private var _network: NetworkSnapshot?
-    private var _tokenUsage: TokenUsageSnapshot?
     private var _keyStats: KeyStatsSnapshot?
 
     // User-selected fixed middle panel
@@ -83,14 +81,11 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
         let disk = collector.collectDisk()
         let diskIO = collector.collectDiskIO()
         let network = collector.collectNetwork()
-        let tokenUsage = isTokenUsageVisible()
-            ? tokenCollector.collect() : nil
         let keyStats = keyStatsCollector.collect()
         lock.lock()
         _cpu = cpu0; _mem = mem
         _temp = temp; _agents = agents; _sys = sys
         _disk = disk; _diskIO = diskIO; _network = network
-        _tokenUsage = tokenUsage.flatMap { $0.isEmpty ? nil : $0 }
         _keyStats = keyStats
         lock.unlock()
 
@@ -125,13 +120,6 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
         return (middleLeft, middleCenter, middleRight)
     }
 
-    private func isTokenUsageVisible() -> Bool {
-        let slots = selectedMiddleSlots()
-        return slots.0 == .tokenUsage
-            || slots.1 == .tokenUsage
-            || slots.2 == .tokenUsage
-    }
-
     /// True when a column has a live animation (breathing while working, or the
     /// done/waiting blink) — the frame loop uses this to raise the LCD frame rate
     /// only while something is actually moving, and idle low otherwise.
@@ -152,7 +140,6 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
     private func metricsLoop() {
         log("[Metrics] Loop started on metricsQueue")
         var slowTick = 0
-        var tokenTick = 0
         while metricsRunning {
             // Fast metrics every tick
             let cpu = collector.collectCPU()
@@ -176,20 +163,6 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
                 _disk = disk; _diskIO = diskIO; _network = network
                 lock.unlock()
                 slowTick = 0
-            }
-
-            // Token usage every 6th tick (~3s, tokscale takes ~1s)
-            tokenTick += 1
-            if tokenTick >= 6 {
-                if isTokenUsageVisible() {
-                    let tokenUsage = tokenCollector.collect()
-                    if !tokenUsage.isEmpty {
-                        lock.lock()
-                        _tokenUsage = tokenUsage
-                        lock.unlock()
-                    }
-                }
-                tokenTick = 0
             }
 
             Thread.sleep(forTimeInterval: 0.5)
@@ -321,7 +294,7 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
             disk = _disk ?? DiskSnapshot(totalGB: 0, usedGB: 0, freeGB: 0)
             diskIO = _diskIO ?? DiskIOSnapshot(readBytesPerSec: 0, writeBytesPerSec: 0)
             network = _network ?? NetworkSnapshot(rxBytesPerSec: 0, txBytesPerSec: 0)
-            tokenUsage = _tokenUsage ?? TokenUsageSnapshot(
+            tokenUsage = TokenUsageSnapshot(
                 entries: [], totalInput: 0, totalOutput: 0,
                 totalCacheRead: 0, totalCacheWrite: 0,
                 totalMessages: 0, totalCost: 0, processingTimeMs: 0)
@@ -874,7 +847,7 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
         }
 
         if tokenUsage.isEmpty {
-            Draw.centeredText(ctx, "No data — run tokscale to populate",
+            Draw.centeredText(ctx, "No token data",
                               cx: x + pw / 2, y: py + ph / 2 - 20,
                               font: Fonts.system(22), color: Color.textD)
             return
@@ -1005,7 +978,7 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
         switch slot {
         case .codex, .disk, .keyStats:
             return Color.cyan
-        case .claude, .tokenUsage:
+        case .claude:
             return Color.claude
         case .network:
             return Color.magenta
@@ -1033,9 +1006,6 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
         case .network:
             renderNetworkColumn(ctx, x: x, w: w, py: py, ph: ph,
                                 network: network)
-        case .tokenUsage:
-            renderTokenColumn(ctx, x: x, w: w, py: py, ph: ph,
-                              tokenUsage: tokenUsage)
         case .keyStats:
             renderKeyStatsColumn(ctx, x: x, w: w, py: py, ph: ph,
                                  stats: keyStats)
@@ -1049,7 +1019,7 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
                   font: Fonts.system(24, weight: .bold), color: Color.claude)
 
         if tokenUsage.isEmpty {
-            Draw.centeredText(ctx, "No tokscale data",
+            Draw.centeredText(ctx, "No token data",
                               cx: x + w / 2, y: py + ph / 2,
                               font: Fonts.system(20), color: Color.textD)
             return
@@ -1089,7 +1059,7 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
                   font: Fonts.system(24, weight: .bold), color: Color.cyan)
 
         guard stats.available else {
-            Draw.centeredText(ctx, "Allow MacTR Accessibility",
+            Draw.centeredText(ctx, "Allow MacTR Input Monitoring",
                               cx: x + w / 2, y: py + ph / 2 - 16,
                               font: Fonts.system(20), color: Color.textD)
             Draw.centeredText(ctx, "Then restart MacTR",

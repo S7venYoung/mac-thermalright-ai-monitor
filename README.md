@@ -18,7 +18,6 @@
 
 ![仪表盘](img/token_usage_preview.png)
 
-<sub>Token 使用情况, 使用 tokscale --today --json 进行统计 。</sub>
 
 > 基于 [beret21/MacTR](https://github.com/beret21/MacTR) 改造,核心是一块实时追踪
 > [Claude Code](https://claude.com/claude-code) 与 [Codex](https://openai.com/codex)

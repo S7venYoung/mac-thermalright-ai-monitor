@@ -1,4 +1,3 @@
-import ApplicationServices
 import CoreGraphics
 import Foundation
 
@@ -97,11 +96,8 @@ final class KeyStatsCollector: @unchecked Sendable {
         starting = true
         lock.unlock()
 
-        if requestPermission {
-            let options = [
-                "AXTrustedCheckOptionPrompt": true
-            ] as CFDictionary
-            _ = AXIsProcessTrustedWithOptions(options)
+        if requestPermission && !CGPreflightListenEventAccess() {
+            _ = CGRequestListenEventAccess()
         }
 
         eventQueue.async { [weak self] in
@@ -199,6 +195,24 @@ final class KeyStatsCollector: @unchecked Sendable {
     }
 
     private func runEventTap() {
+        // A listen-only event tap can still receive mouse events when macOS has
+        // not granted keyboard Input Monitoring. Do not accept that partial
+        // state: retry until the permission is granted, then create a fresh tap
+        // that receives both keyboard and mouse events.
+        guard CGPreflightListenEventAccess() else {
+            lock.lock()
+            starting = false
+            tracking = false
+            let retry = shouldTrack
+            lock.unlock()
+            if retry {
+                eventQueue.asyncAfter(deadline: .now() + 2) { [weak self] in
+                    self?.retryEventTapIfNeeded()
+                }
+            }
+            return
+        }
+
         let types: [CGEventType] = [
             .keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown,
             .mouseMoved, .leftMouseDragged, .rightMouseDragged,

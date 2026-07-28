@@ -39,7 +39,6 @@ let package = Package(
             linkerSettings: [
                 .unsafeFlags(["-L/opt/homebrew/lib"]),
                 .linkedLibrary("usb-1.0"),
-                .linkedFramework("ApplicationServices"),
             ]
         ),
     ]

@@ -26,7 +26,6 @@ enum MiddleSlot: String, CaseIterable, Identifiable, Sendable {
     case claude = "Claude"
     case disk = "Disk"
     case network = "Network"
-    case tokenUsage = "Token Usage"
     case keyStats = "KeyStats"
 
     var id: String { rawValue }
@@ -37,7 +36,6 @@ enum MiddleSlot: String, CaseIterable, Identifiable, Sendable {
         case .claude: "Claude"
         case .disk: "磁盘"
         case .network: "网络"
-        case .tokenUsage: "Token 用量"
         case .keyStats: "键鼠统计"
         }
     }
