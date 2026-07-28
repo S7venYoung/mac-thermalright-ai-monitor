@@ -1,0 +1,57 @@
+name: Build macOS ARM64
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - "Sources/**"
+      - "Package.swift"
+      - ".github/workflows/build-macos.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: brew install libusb pkg-config
+
+      - name: Show build environment
+        run: |
+          uname -m
+          sw_vers
+          swift --version
+
+      - name: Build release
+        run: swift build -c release
+
+      - name: Package executable
+        run: |
+          bin_dir="$(swift build -c release --show-bin-path)"
+          mkdir -p dist
+          cp "$bin_dir/MacTR" dist/
+          chmod +x dist/MacTR
+
+          if [ -d "$bin_dir/Sparkle.framework" ]; then
+            cp -R "$bin_dir/Sparkle.framework" dist/
+          fi
+
+          otool -L dist/MacTR
+          tar -czf MacTR-macos-arm64.tar.gz -C dist .
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: MacTR-macos-arm64
+          path: MacTR-macos-arm64.tar.gz
+          if-no-files-found: error
+          retention-days: 30
