@@ -702,7 +702,7 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
         let capFont = Fonts.system(16)
 
         // Column title + total capacity
-        Draw.text(ctx, "DISK", x: x, y: py + 50,
+        Draw.text(ctx, "DISK", x: x, y: py + 14,
                   font: Fonts.system(24, weight: .bold), color: Color.cyan)
         let totalStr = String(format: "Total: %.0f GB", disk.totalGB)
         let totalW = (totalStr as NSString).size(withAttributes: [.font: capFont]).width
@@ -774,7 +774,7 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
 
     private func renderNetworkColumn(_ ctx: CGContext, x: Int, w: Int, py: Int, ph: Int,
                                       network: NetworkSnapshot) {
-        Draw.text(ctx, "NETWORK", x: x, y: py + 50,
+        Draw.text(ctx, "NETWORK", x: x, y: py + 14,
                   font: Fonts.system(24, weight: .bold), color: Color.magenta)
 
         let dlKB = network.rxBytesPerSec / 1024
@@ -1002,7 +1002,7 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
     private func renderTokenColumn(_ ctx: CGContext, x: Int, w: Int,
                                    py: Int, ph: Int,
                                    tokenUsage: TokenUsageSnapshot) {
-        Draw.text(ctx, "TOKEN USAGE", x: x, y: py + 50,
+        Draw.text(ctx, "TOKEN USAGE", x: x, y: py + 14,
                   font: Fonts.system(24, weight: .bold), color: Color.claude)
 
         if tokenUsage.isEmpty {
@@ -1105,7 +1105,7 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
         }
 
         // Header: name + activity indicator (right-aligned "● now" / "12m ago")
-        Draw.text(ctx, name, x: x, y: py + 50,
+        Draw.text(ctx, name, x: x, y: py + 14,
                   font: Fonts.system(24, weight: .bold), color: accent)
         let active = (usage.secondsSinceActive ?? Int.max) < 90
         let agoStr: String
@@ -1121,12 +1121,12 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
         let agoFont = Fonts.system(17, weight: .medium)
         let agoColor = active ? Color.green : Color.textD
         let agoW = (agoStr as NSString).size(withAttributes: [.font: agoFont]).width
-        Draw.text(ctx, agoStr, x: Int(CGFloat(x + w) - agoW), y: py + 56,
+        Draw.text(ctx, agoStr, x: Int(CGFloat(x + w) - agoW), y: py + 20,
                   font: agoFont, color: agoColor)
         let dotR: CGFloat = 5
         ctx.setFillColor(agoColor)
         ctx.fillEllipse(in: CGRect(x: CGFloat(x + w) - agoW - dotR * 2 - 8,
-                                   y: CGFloat(py + 56) + 10 - dotR,
+                                   y: CGFloat(py + 20) + 10 - dotR,
                                    width: dotR * 2, height: dotR * 2))
 
         // Current session — TOP. Project (+ step badge), plan progress, live activity.
