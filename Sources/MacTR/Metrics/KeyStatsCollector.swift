@@ -129,11 +129,36 @@ final class KeyStatsCollector: @unchecked Sendable {
         rolloverIfNeeded()
         let current = state
         let isAvailable = tracking
+        let tapToCheck = eventTap
+        let tapRunLoop = eventRunLoop
         let runLoopToRestart =
             tracking && inputAccessNow && !inputAccessAtTapStart
                 ? eventRunLoop : nil
         saveLocked()
         lock.unlock()
+
+        // macOS may silently disable a global event tap after a timeout, sleep,
+        // Fast User Switching, or a secure-input transition. The disabled
+        // notification is normally handled in the callback, but it is not
+        // guaranteed to arrive in every one of those cases. Check the tap on
+        // every metrics refresh so keyboard and mouse counting cannot remain
+        // stalled indefinitely.
+        if let tapToCheck {
+            if !CFMachPortIsValid(tapToCheck) {
+                if let tapRunLoop {
+                    CFRunLoopStop(tapRunLoop)
+                }
+            } else if !CGEvent.tapIsEnabled(tap: tapToCheck) {
+                CGEvent.tapEnable(tap: tapToCheck, enable: true)
+                if !CGEvent.tapIsEnabled(tap: tapToCheck),
+                   let tapRunLoop {
+                    // Re-enabling failed. Ending the run loop lets
+                    // runEventTap() recreate a fresh port after two seconds.
+                    CFRunLoopStop(tapRunLoop)
+                }
+            }
+        }
+
         if let runLoopToRestart {
             // The user granted Input Monitoring while the mouse-only tap was
             // already running. Recreate it so keyboard events are included.
