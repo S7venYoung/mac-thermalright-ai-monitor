@@ -27,7 +27,7 @@ struct SettingsView: View {
                 aboutView
             }
         }
-        .frame(width: 480, height: 340)
+        .frame(width: 480, height: 430)
     }
 
     // MARK: - General Tab
@@ -133,6 +133,27 @@ struct SettingsView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+
+            Section("定时熄屏") {
+                Toggle("启用定时熄屏", isOn: $state.screenScheduleEnabled)
+                    .onChange(of: state.screenScheduleEnabled) {
+                        state.applySettings()
+                    }
+
+                DatePicker(
+                    "熄屏时间", selection: screenOffTimeBinding,
+                    displayedComponents: .hourAndMinute)
+                    .disabled(!state.screenScheduleEnabled)
+
+                DatePicker(
+                    "亮屏时间", selection: screenOnTimeBinding,
+                    displayedComponents: .hourAndMinute)
+                    .disabled(!state.screenScheduleEnabled)
+
+                Text("到点发送黑色画面并断开 LCD，亮屏时间自动重新连接。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
         .formStyle(.grouped)
         .padding()
@@ -148,7 +169,9 @@ struct SettingsView: View {
                         Circle()
                             .fill(state.isConnected ? .green : .red)
                             .frame(width: 8, height: 8)
-                        Text(state.isConnected ? "已连接" : "未连接")
+                        Text(
+                            state.isScreenOff ? "定时熄屏中"
+                                : (state.isConnected ? "已连接" : "未连接"))
                     }
                 }
 
@@ -158,7 +181,7 @@ struct SettingsView: View {
                     LabeledContent("PID", value: String(format: "0x%04X", info.pid))
                 }
 
-                if !state.isConnected {
+                if !state.isConnected && !state.isScreenOff {
                     Button("重新连接") {
                         state.connect()
                     }
@@ -225,5 +248,38 @@ struct SettingsView: View {
             get: { Double(state.brightness) },
             set: { state.brightness = Int($0) }
         )
+    }
+
+    private var screenOffTimeBinding: Binding<Date> {
+        timeBinding(
+            get: { state.screenOffMinutes },
+            set: { state.screenOffMinutes = $0 })
+    }
+
+    private var screenOnTimeBinding: Binding<Date> {
+        timeBinding(
+            get: { state.screenOnMinutes },
+            set: { state.screenOnMinutes = $0 })
+    }
+
+    private func timeBinding(
+        get: @escaping () -> Int,
+        set: @escaping (Int) -> Void
+    ) -> Binding<Date> {
+        Binding(
+            get: {
+                let minutes = get()
+                return Calendar.current.date(
+                    bySettingHour: minutes / 60,
+                    minute: minutes % 60,
+                    second: 0,
+                    of: Date()) ?? Date()
+            },
+            set: { date in
+                let components = Calendar.current.dateComponents(
+                    [.hour, .minute], from: date)
+                set((components.hour ?? 0) * 60 + (components.minute ?? 0))
+                state.applySettings()
+            })
     }
 }

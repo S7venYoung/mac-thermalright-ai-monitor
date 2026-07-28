@@ -51,6 +51,7 @@ final class AppState {
 
     // Connection (UI-facing)
     var isConnected = false
+    var isScreenOff = false
     var deviceInfo: DeviceInfo?
     var statusMessage = "未连接"
 
@@ -59,6 +60,12 @@ final class AppState {
     var brightness: Int = 5
     var refreshInterval: Double = 0.5
     var rotateDisplay: Bool = false
+    var screenScheduleEnabled =
+        UserDefaults.standard.bool(forKey: "screenScheduleEnabled")
+    var screenOffMinutes =
+        UserDefaults.standard.object(forKey: "screenOffMinutes") as? Int ?? 18 * 60
+    var screenOnMinutes =
+        UserDefaults.standard.object(forKey: "screenOnMinutes") as? Int ?? 9 * 60
     var middleLeft: MiddleSlot =
         MiddleSlot(rawValue: UserDefaults.standard.string(
             forKey: "middleLeftSlot") ?? "") ?? .codex
@@ -84,14 +91,17 @@ final class AppState {
             Task { @MainActor in
                 guard let self else { return }
                 let prev = self.isConnected
+                let prevScreenOff = self.isScreenOff
                 self.isConnected = status.connected
+                self.isScreenOff = status.screenOff
                 self.deviceInfo = status.deviceInfo ?? self.deviceInfo
                 self.statusMessage = status.message
                 self.frameCount = status.frameCount
                 self.lastFrameSize = status.lastFrameSize
 
                 // Log state changes + post notification for UI refresh
-                if status.connected != prev {
+                if status.connected != prev
+                    || status.screenOff != prevScreenOff {
                     log("[*] LCD \(status.connected ? "connected" : "disconnected")")
                     NotificationCenter.default.post(name: .deviceStateChanged, object: nil)
                 }
@@ -101,13 +111,17 @@ final class AppState {
         eng.start(set: currentSet, middleLeft: middleLeft,
                   middleCenter: middleCenter, middleRight: middleRight,
                   brightness: brightness,
-                  interval: refreshInterval, rotate: rotateDisplay)
+                  interval: refreshInterval, rotate: rotateDisplay,
+                  screenScheduleEnabled: screenScheduleEnabled,
+                  screenOffMinutes: screenOffMinutes,
+                  screenOnMinutes: screenOnMinutes)
     }
 
     func stop() {
         engine?.stop()
         engine = nil
         isConnected = false
+        isScreenOff = false
         statusMessage = "已停止"
     }
 
@@ -118,6 +132,7 @@ final class AppState {
     func disconnect() {
         engine?.stop()
         isConnected = false
+        isScreenOff = false
         statusMessage = "未连接"
         frameCount = 0
     }
@@ -127,10 +142,17 @@ final class AppState {
         UserDefaults.standard.set(middleLeft.rawValue, forKey: "middleLeftSlot")
         UserDefaults.standard.set(middleCenter.rawValue, forKey: "middleCenterSlot")
         UserDefaults.standard.set(middleRight.rawValue, forKey: "middleRightSlot")
+        UserDefaults.standard.set(
+            screenScheduleEnabled, forKey: "screenScheduleEnabled")
+        UserDefaults.standard.set(screenOffMinutes, forKey: "screenOffMinutes")
+        UserDefaults.standard.set(screenOnMinutes, forKey: "screenOnMinutes")
         engine?.updateSettings(set: currentSet, middleLeft: middleLeft,
                                middleCenter: middleCenter, middleRight: middleRight,
                                brightness: brightness, interval: refreshInterval,
-                               rotate: rotateDisplay)
+                               rotate: rotateDisplay,
+                               screenScheduleEnabled: screenScheduleEnabled,
+                               screenOffMinutes: screenOffMinutes,
+                               screenOnMinutes: screenOnMinutes)
     }
 
     /// Latest rendered frame for the on-Mac preview window
@@ -143,6 +165,7 @@ final class AppState {
 
 struct EngineStatus: Sendable {
     let connected: Bool
+    let screenOff: Bool
     let deviceInfo: DeviceInfo?
     let message: String
     let frameCount: Int
@@ -158,6 +181,8 @@ final class DisplayEngine: @unchecked Sendable {
     private var device: USBDevice?
     private var hotplug: USBHotplug?
     private var running = false
+    private var appActive = false
+    private var wakeCheckScheduled = false
     private var frameCount = 0
     private var lastFrameSize = 0
 
@@ -169,6 +194,9 @@ final class DisplayEngine: @unchecked Sendable {
     private var brightness: Int = 5
     private var interval: Double = 0.5
     private var rotateDisplay: Bool = false
+    private var screenScheduleEnabled = false
+    private var screenOffMinutes = 18 * 60
+    private var screenOnMinutes = 9 * 60
 
     // Renderers
     private let monitorRenderer = MonitorRenderer()
@@ -179,7 +207,10 @@ final class DisplayEngine: @unchecked Sendable {
 
     func start(set: DisplaySet, middleLeft: MiddleSlot,
                middleCenter: MiddleSlot, middleRight: MiddleSlot,
-               brightness: Int, interval: Double, rotate: Bool) {
+               brightness: Int, interval: Double, rotate: Bool,
+               screenScheduleEnabled: Bool, screenOffMinutes: Int,
+               screenOnMinutes: Int) {
+        appActive = true
         self.currentSet = set
         self.middleLeft = middleLeft
         self.middleCenter = middleCenter
@@ -187,6 +218,9 @@ final class DisplayEngine: @unchecked Sendable {
         self.brightness = brightness
         self.interval = interval
         self.rotateDisplay = rotate
+        self.screenScheduleEnabled = screenScheduleEnabled
+        self.screenOffMinutes = screenOffMinutes
+        self.screenOnMinutes = screenOnMinutes
         monitorRenderer.setMiddleSlots(
             left: middleLeft, center: middleCenter, right: middleRight)
 
@@ -200,6 +234,7 @@ final class DisplayEngine: @unchecked Sendable {
     }
 
     func stop() {
+        appActive = false
         running = false
         monitorRenderer.stopMetrics()
         usbQueue.async { [weak self] in
@@ -225,7 +260,9 @@ final class DisplayEngine: @unchecked Sendable {
     func updateSettings(set: DisplaySet, middleLeft: MiddleSlot,
                         middleCenter: MiddleSlot, middleRight: MiddleSlot,
                         brightness: Int,
-                        interval: Double, rotate: Bool) {
+                        interval: Double, rotate: Bool,
+                        screenScheduleEnabled: Bool, screenOffMinutes: Int,
+                        screenOnMinutes: Int) {
         log("[Engine] Settings updated: set=\(set.rawValue), middle=\(middleLeft.rawValue)+\(middleCenter.rawValue)+\(middleRight.rawValue), brightness=\(brightness), interval=\(interval), rotate=\(rotate)")
         self.currentSet = set
         self.middleLeft = middleLeft
@@ -234,14 +271,29 @@ final class DisplayEngine: @unchecked Sendable {
         self.brightness = brightness
         self.interval = interval
         self.rotateDisplay = rotate
+        self.screenScheduleEnabled = screenScheduleEnabled
+        self.screenOffMinutes = screenOffMinutes
+        self.screenOnMinutes = screenOnMinutes
         monitorRenderer.setMiddleSlots(
             left: middleLeft, center: middleCenter, right: middleRight)
+
+        usbQueue.async { [weak self] in
+            guard let self, self.appActive, !self.running,
+                  !self.isWithinScreenOffSchedule() else { return }
+            self.connectAndRun()
+        }
     }
 
     // MARK: - Private (all on usbQueue)
 
     private func connectAndRun() {
-        guard !running else { return }
+        guard appActive, !running else { return }
+        if isWithinScreenOffSchedule() {
+            postStatus(
+                connected: false, screenOff: true, message: "定时熄屏中")
+            scheduleWakeCheck()
+            return
+        }
 
         // Ensure metrics collection is running (may have been stopped on disconnect/sleep)
         monitorRenderer.startMetrics()
@@ -286,6 +338,28 @@ final class DisplayEngine: @unchecked Sendable {
         var nextDeadline = DispatchTime.now()
 
         while running {
+            if isWithinScreenOffSchedule() {
+                autoreleasepool {
+                    if let jpeg = makeBlackFrameJPEG() {
+                        do {
+                            try LYProtocol.sendFrame(
+                                device: device, jpegData: jpeg)
+                            frameCount += 1
+                            lastFrameSize = jpeg.count
+                        } catch {
+                            log("[Schedule] Could not send black frame: \(error)")
+                        }
+                    }
+                }
+                running = false
+                device.close()
+                self.device = nil
+                postStatus(
+                    connected: false, screenOff: true, message: "定时熄屏中")
+                scheduleWakeCheck()
+                return
+            }
+
             // Adaptive frame rate: the device sustains ~19fps, but the dashboard's
             // data only changes every ~2s. Run fast (15fps) ONLY while a column is
             // animating (agent working → breathing, or done → blinking); otherwise
@@ -323,13 +397,7 @@ final class DisplayEngine: @unchecked Sendable {
                         postStatus(connected: true, deviceInfo: nil,
                                    message: "运行中")
                     } catch {
-                        log("[ERROR] Frame send failed: \(error)")
-                        running = false
-                        self.device?.close()
-                        self.device = nil
-                        postStatus(connected: false, message: "连接已断开（发送错误）")
-
-                        log("[Engine] Will retry connection in 5s...")
+                        handleFrameSendFailure(error)
                         Thread.sleep(forTimeInterval: 5)
                         connectAndRun()
                         return
@@ -347,6 +415,56 @@ final class DisplayEngine: @unchecked Sendable {
                 nextDeadline = now
             }
         }
+    }
+
+    private func isWithinScreenOffSchedule(date: Date = Date()) -> Bool {
+        guard screenScheduleEnabled, screenOffMinutes != screenOnMinutes else {
+            return false
+        }
+        let components = Calendar.current.dateComponents(
+            [.hour, .minute], from: date)
+        let now = (components.hour ?? 0) * 60 + (components.minute ?? 0)
+        if screenOffMinutes < screenOnMinutes {
+            return now >= screenOffMinutes && now < screenOnMinutes
+        }
+        return now >= screenOffMinutes || now < screenOnMinutes
+    }
+
+    private func scheduleWakeCheck() {
+        guard appActive, !wakeCheckScheduled else { return }
+        wakeCheckScheduled = true
+        usbQueue.asyncAfter(deadline: .now() + 15) { [weak self] in
+            guard let self else { return }
+            self.wakeCheckScheduled = false
+            guard self.appActive else { return }
+            if self.isWithinScreenOffSchedule() {
+                self.scheduleWakeCheck()
+            } else {
+                self.connectAndRun()
+            }
+        }
+    }
+
+    private func makeBlackFrameJPEG() -> Data? {
+        guard let context = CGContext(
+            data: nil, width: Layout.width, height: Layout.height,
+            bitsPerComponent: 8, bytesPerRow: Layout.width * 4,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+        else { return nil }
+        context.setFillColor(CGColor(gray: 0, alpha: 1))
+        context.fill(CGRect(x: 0, y: 0, width: Layout.width, height: Layout.height))
+        guard let image = context.makeImage() else { return nil }
+        return JPEGEncoder.encode(image, brightness: 1, rotate: false)
+    }
+
+    private func handleFrameSendFailure(_ error: Error) {
+        log("[ERROR] Frame send failed: \(error)")
+        running = false
+        device?.close()
+        device = nil
+        postStatus(connected: false, message: "连接已断开（发送错误）")
+        log("[Engine] Will retry connection in 5s...")
     }
 
     private func setupHotplug() {
@@ -411,10 +529,12 @@ final class DisplayEngine: @unchecked Sendable {
     }
 
     private func postStatus(
-        connected: Bool, deviceInfo: DeviceInfo? = nil, message: String
+        connected: Bool, screenOff: Bool = false,
+        deviceInfo: DeviceInfo? = nil, message: String
     ) {
         let status = EngineStatus(
             connected: connected,
+            screenOff: screenOff,
             deviceInfo: deviceInfo,
             message: message,
             frameCount: frameCount,

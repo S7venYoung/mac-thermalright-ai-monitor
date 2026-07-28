@@ -370,13 +370,13 @@ final class StatusBarController: NSObject, NSApplicationDelegate, NSMenuDelegate
         statusMenuItem.title = "\(dot) \(appState.statusMessage)"
 
         // Reconnect visibility
-        reconnectItem.isHidden = appState.isConnected
+        reconnectItem.isHidden = appState.isConnected || appState.isScreenOff
     }
 
     // MARK: - Preview Window (auto-fallback when LCD is disconnected)
 
     private func updatePreviewForConnection() {
-        if appState.isConnected {
+        if appState.isConnected || appState.isScreenOff {
             hidePreview()
         } else {
             showPreview()
@@ -453,7 +453,7 @@ final class StatusBarController: NSObject, NSApplicationDelegate, NSMenuDelegate
         let window = NSWindow(contentViewController: hostingController)
         window.title = "MacTR 设置"
         window.styleMask = [.titled, .closable]
-        window.setContentSize(NSSize(width: 450, height: 350))
+        window.setContentSize(NSSize(width: 480, height: 440))
         window.center()
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)

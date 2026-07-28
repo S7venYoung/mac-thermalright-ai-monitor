@@ -91,7 +91,7 @@ struct MenuBarView: View {
             Divider()
 
             // Actions
-            if !state.isConnected {
+            if !state.isConnected && !state.isScreenOff {
                 Button("重新连接") {
                     state.connect()
                 }
