@@ -24,7 +24,7 @@ struct MenuBarView: View {
             .padding(.top, 4)
 
             if state.isConnected {
-                Text("\(state.frameCount) frames • \(state.lastFrameSize / 1024)KB")
+                Text("\(state.frameCount) 帧 • \(state.lastFrameSize / 1024) KB")
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
                     .padding(.horizontal, 8)
@@ -33,7 +33,7 @@ struct MenuBarView: View {
             Divider()
 
             // Display Set
-            Text("Display Set")
+            Text("显示方案")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .padding(.horizontal, 8)
@@ -46,7 +46,7 @@ struct MenuBarView: View {
                     HStack {
                         Image(systemName: state.currentSet == set ? "checkmark.circle.fill" : "circle")
                             .foregroundStyle(state.currentSet == set ? .blue : .secondary)
-                        Text(set.rawValue)
+                        Text(set.displayName)
                     }
                 }
             }
@@ -55,7 +55,7 @@ struct MenuBarView: View {
 
             // Brightness
             HStack {
-                Text("Brightness")
+                Text("亮度")
                     .font(.caption)
                 Spacer()
                 Text("\(state.brightness)")
@@ -92,18 +92,18 @@ struct MenuBarView: View {
 
             // Actions
             if !state.isConnected {
-                Button("Reconnect") {
+                Button("重新连接") {
                     state.connect()
                 }
             }
 
             SettingsLink {
-                Text("Settings...")
+                Text("设置…")
             }
 
             Divider()
 
-            Button("Quit") {
+            Button("退出") {
                 state.stop()
                 NSApplication.shared.terminate(nil)
             }

@@ -318,24 +318,24 @@ final class StatusBarController: NSObject, NSApplicationDelegate, NSMenuDelegate
         menu.addItem(versionMenuItem)
 
         // Status
-        statusMenuItem = NSMenuItem(title: "Disconnected", action: nil, keyEquivalent: "")
+        statusMenuItem = NSMenuItem(title: "未连接", action: nil, keyEquivalent: "")
         statusMenuItem.isEnabled = false
         menu.addItem(statusMenuItem)
 
         menu.addItem(.separator())
 
         // Reconnect
-        reconnectItem = NSMenuItem(title: "Reconnect", action: #selector(reconnect), keyEquivalent: "r")
+        reconnectItem = NSMenuItem(title: "重新连接", action: #selector(reconnect), keyEquivalent: "r")
         reconnectItem.target = self
         menu.addItem(reconnectItem)
 
         // Settings
-        let settingsItem = NSMenuItem(title: "Settings...", action: #selector(openSettings), keyEquivalent: ",")
+        let settingsItem = NSMenuItem(title: "设置…", action: #selector(openSettings), keyEquivalent: ",")
         settingsItem.target = self
         menu.addItem(settingsItem)
 
         // Preview window (manual reopen after closing it)
-        let previewItem = NSMenuItem(title: "Preview Window", action: #selector(showPreviewManually), keyEquivalent: "p")
+        let previewItem = NSMenuItem(title: "预览窗口", action: #selector(showPreviewManually), keyEquivalent: "p")
         previewItem.target = self
         menu.addItem(previewItem)
 
@@ -343,21 +343,21 @@ final class StatusBarController: NSObject, NSApplicationDelegate, NSMenuDelegate
 
         // Check for Updates
         let checkUpdatesItem = NSMenuItem(
-            title: "Check for Updates...",
+            title: "检查更新…",
             action: #selector(SPUStandardUpdaterController.checkForUpdates(_:)),
             keyEquivalent: "u")
         checkUpdatesItem.target = updaterController
         menu.addItem(checkUpdatesItem)
 
         // About
-        let aboutItem = NSMenuItem(title: "About MacTR", action: #selector(showAbout), keyEquivalent: "")
+        let aboutItem = NSMenuItem(title: "关于 MacTR", action: #selector(showAbout), keyEquivalent: "")
         aboutItem.target = self
         menu.addItem(aboutItem)
 
         menu.addItem(.separator())
 
         // Quit
-        let quitItem = NSMenuItem(title: "Quit MacTR", action: #selector(quit), keyEquivalent: "q")
+        let quitItem = NSMenuItem(title: "退出 MacTR", action: #selector(quit), keyEquivalent: "q")
         quitItem.target = self
         menu.addItem(quitItem)
 
@@ -451,7 +451,7 @@ final class StatusBarController: NSObject, NSApplicationDelegate, NSMenuDelegate
         let settingsView = SettingsView(state: appState)
         let hostingController = NSHostingController(rootView: settingsView)
         let window = NSWindow(contentViewController: hostingController)
-        window.title = "MacTR Settings"
+        window.title = "MacTR 设置"
         window.styleMask = [.titled, .closable]
         window.setContentSize(NSSize(width: 450, height: 350))
         window.center()
@@ -466,17 +466,17 @@ final class StatusBarController: NSObject, NSApplicationDelegate, NSMenuDelegate
         let alert = NSAlert()
         alert.messageText = "MacTR"
         alert.informativeText = """
-            Version \(version) (Build \(build))
+            版本 \(version)（构建 \(build)）
 
             Mac + Thermalright
-            Native macOS driver for Thermalright
-            Trofeo Vision 9.16 LCD display.
+            Thermalright Trofeo Vision 9.16 LCD
+            原生 macOS 驱动。
 
-            Built with Swift + libusb
+            使用 Swift + libusb 构建
             github.com/beret21/MacTR
             """
         alert.alertStyle = .informational
-        alert.addButton(withTitle: "OK")
+        alert.addButton(withTitle: "好")
 
         if let icon = NSImage(named: "AppIcon") {
             alert.icon = icon

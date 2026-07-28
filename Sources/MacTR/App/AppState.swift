@@ -18,6 +18,7 @@ enum DisplaySet: String, CaseIterable, Identifiable, Sendable {
     case systemMonitor = "System Monitor"
 
     var id: String { rawValue }
+    var displayName: String { "系统监控" }
 }
 
 enum MiddleSlot: String, CaseIterable, Identifiable, Sendable {
@@ -29,6 +30,17 @@ enum MiddleSlot: String, CaseIterable, Identifiable, Sendable {
     case keyStats = "KeyStats"
 
     var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .codex: "Codex"
+        case .claude: "Claude"
+        case .disk: "磁盘"
+        case .network: "网络"
+        case .tokenUsage: "Token 用量"
+        case .keyStats: "键鼠统计"
+        }
+    }
 }
 
 // MARK: - AppState
@@ -40,7 +52,7 @@ final class AppState {
     // Connection (UI-facing)
     var isConnected = false
     var deviceInfo: DeviceInfo?
-    var statusMessage = "Disconnected"
+    var statusMessage = "未连接"
 
     // Display
     var currentSet: DisplaySet = .systemMonitor
@@ -96,7 +108,7 @@ final class AppState {
         engine?.stop()
         engine = nil
         isConnected = false
-        statusMessage = "Stopped"
+        statusMessage = "已停止"
     }
 
     func connect() {
@@ -106,7 +118,7 @@ final class AppState {
     func disconnect() {
         engine?.stop()
         isConnected = false
-        statusMessage = "Disconnected"
+        statusMessage = "未连接"
         frameCount = 0
     }
 
@@ -239,19 +251,19 @@ final class DisplayEngine: @unchecked Sendable {
         device = nil
         frameCount = 0
 
-        postStatus(connected: false, message: "Connecting...")
+        postStatus(connected: false, message: "正在连接…")
 
         let dev = USBDevice()
         do {
             try dev.open()
         } catch USBError.deviceNotFound {
-            postStatus(connected: false, message: "Device not found")
+            postStatus(connected: false, message: "未找到设备")
             return
         } catch USBError.deviceBusy {
-            postStatus(connected: false, message: "Device busy (Chrome?)")
+            postStatus(connected: false, message: "设备被占用（可能是 Chrome）")
             return
         } catch {
-            postStatus(connected: false, message: "Error: \(error)")
+            postStatus(connected: false, message: "错误：\(error)")
             return
         }
 
@@ -259,11 +271,11 @@ final class DisplayEngine: @unchecked Sendable {
             let info = try LYProtocol.handshake(device: dev)
             device = dev
             postStatus(connected: true, deviceInfo: info,
-                       message: "Connected (\(info.width)x\(info.height))")
+                       message: "已连接（\(info.width)×\(info.height)）")
             runFrameLoop(device: dev, info: info)
         } catch {
             dev.close()
-            postStatus(connected: false, message: "Handshake failed")
+            postStatus(connected: false, message: "握手失败")
         }
     }
 
@@ -309,13 +321,13 @@ final class DisplayEngine: @unchecked Sendable {
                             log("[OK] Active! ~\(jpeg.count / 1024)KB/frame")
                         }
                         postStatus(connected: true, deviceInfo: nil,
-                                   message: "Active")
+                                   message: "运行中")
                     } catch {
                         log("[ERROR] Frame send failed: \(error)")
                         running = false
                         self.device?.close()
                         self.device = nil
-                        postStatus(connected: false, message: "Disconnected (send error)")
+                        postStatus(connected: false, message: "连接已断开（发送错误）")
 
                         log("[Engine] Will retry connection in 5s...")
                         Thread.sleep(forTimeInterval: 5)
@@ -359,7 +371,7 @@ final class DisplayEngine: @unchecked Sendable {
             self.usbQueue.async { [weak self] in
                 self?.device?.close()
                 self?.device = nil
-                self?.postStatus(connected: false, message: "Disconnected (unplugged)")
+                self?.postStatus(connected: false, message: "连接已断开（设备已拔出）")
             }
         }
 
