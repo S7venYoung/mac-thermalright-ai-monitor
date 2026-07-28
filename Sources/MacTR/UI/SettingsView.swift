@@ -74,16 +74,26 @@ struct SettingsView: View {
                 }
             }
 
-            Section("Middle Panel") {
-                Picker("Show", selection: $state.middlePanel) {
-                    ForEach(MiddlePanelMode.allCases) { panel in
-                        Text(panel.rawValue).tag(panel)
+            Section("Middle Panels") {
+                Picker("Left", selection: $state.middleLeft) {
+                    ForEach(MiddleSlot.allCases) { slot in
+                        Text(slot.rawValue).tag(slot)
                     }
                 }
-                .onChange(of: state.middlePanel) {
+                .onChange(of: state.middleLeft) {
                     state.applySettings()
                 }
-                Text("The selected panel stays fixed and does not rotate automatically.")
+
+                Picker("Right", selection: $state.middleRight) {
+                    ForEach(MiddleSlot.allCases) { slot in
+                        Text(slot.rawValue).tag(slot)
+                    }
+                }
+                .onChange(of: state.middleRight) {
+                    state.applySettings()
+                }
+
+                Text("Both panels stay fixed and can be combined freely.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

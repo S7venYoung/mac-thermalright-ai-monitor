@@ -32,7 +32,8 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
 
     // User-selected fixed middle panel
     private let panelLock = NSLock()
-    private var middlePanel: MiddlePanelMode = .codex
+    private var middleLeft: MiddleSlot = .codex
+    private var middleRight: MiddleSlot = .disk
 
     // Reusable CGContext — avoids allocating 3.6MB every 0.5s (prevents CG raster data leak)
     private var reusableCtx: CGContext?
@@ -99,16 +100,17 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
         metricsRunning = false
     }
 
-    func setMiddlePanel(_ panel: MiddlePanelMode) {
+    func setMiddleSlots(left: MiddleSlot, right: MiddleSlot) {
         panelLock.lock()
-        middlePanel = panel
+        middleLeft = left
+        middleRight = right
         panelLock.unlock()
     }
 
-    private func selectedMiddlePanel() -> MiddlePanelMode {
+    private func selectedMiddleSlots() -> (MiddleSlot, MiddleSlot) {
         panelLock.lock()
         defer { panelLock.unlock() }
-        return middlePanel
+        return (middleLeft, middleRight)
     }
 
     /// True when a column has a live animation (breathing while working, or the
@@ -119,17 +121,11 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
         // Heavy CPU → Pikachu crackles with electricity, worth animating smoothly
         if let c = _cpu, c.total > 55 { return true }
         guard let a = _agents else { return false }
-        switch selectedMiddlePanel() {
-        case .codex:
-            return a.codex.isWorking || a.codex.needsAttention
-        case .claude:
-            return a.claude.isWorking || a.claude.needsAttention
-        case .agents:
-            return a.claude.isWorking || a.claude.needsAttention
-                || a.codex.isWorking || a.codex.needsAttention
-        case .diskNetwork, .tokenUsage:
-            return false
-        }
+        let slots = selectedMiddleSlots()
+        let codexVisible = slots.0 == .codex || slots.1 == .codex
+        let claudeVisible = slots.0 == .claude || slots.1 == .claude
+        return (codexVisible && (a.codex.isWorking || a.codex.needsAttention))
+            || (claudeVisible && (a.claude.isWorking || a.claude.needsAttention))
     }
 
     private func metricsLoop() {
@@ -264,7 +260,8 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
         ctx.translateBy(x: 0, y: CGFloat(h)); ctx.scaleBy(x: 1, y: -1)
         Draw.gradientBackground(ctx)
         renderCPU(ctx, cpu: cpu, temp: temp, agentsBusy: true)
-        renderMiddlePanel(ctx, mode: selectedMiddlePanel(), agents: agents,
+        let slots = selectedMiddleSlots()
+        renderMiddleSlots(ctx, left: slots.0, right: slots.1, agents: agents,
                           disk: disk, diskIO: diskIO, network: network,
                           tokenUsage: tokenUsage)
         renderMemory(ctx, mem: mem, sys: sys, agentsBusy: true)
@@ -331,22 +328,15 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
         Draw.gradientBackground(ctx)
 
         // Panels
-        let panel = selectedMiddlePanel()
-        let agentsBusy: Bool
-        switch panel {
-        case .codex:
-            agentsBusy = agents.codex.isWorking || agents.codex.needsAttention
-        case .claude:
-            agentsBusy = agents.claude.isWorking || agents.claude.needsAttention
-        case .agents:
-            agentsBusy = agents.claude.isWorking || agents.claude.needsAttention
-                || agents.codex.isWorking || agents.codex.needsAttention
-        case .diskNetwork, .tokenUsage:
-            agentsBusy = false
-        }
+        let slots = selectedMiddleSlots()
+        let codexVisible = slots.0 == .codex || slots.1 == .codex
+        let claudeVisible = slots.0 == .claude || slots.1 == .claude
+        let agentsBusy =
+            (codexVisible && (agents.codex.isWorking || agents.codex.needsAttention))
+            || (claudeVisible && (agents.claude.isWorking || agents.claude.needsAttention))
         renderCPU(ctx, cpu: cpu, temp: temp, agentsBusy: agentsBusy)
 
-        renderMiddlePanel(ctx, mode: panel, agents: agents,
+        renderMiddleSlots(ctx, left: slots.0, right: slots.1, agents: agents,
                           disk: disk, diskIO: diskIO, network: network,
                           tokenUsage: tokenUsage)
 
@@ -958,38 +948,95 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
 
     // MARK: - AI Agents Panel (triple width)
 
-    private func renderMiddlePanel(_ ctx: CGContext, mode: MiddlePanelMode,
-                                   agents: AgentsSnapshot, disk: DiskSnapshot,
-                                   diskIO: DiskIOSnapshot, network: NetworkSnapshot,
+    private func renderMiddleSlots(_ ctx: CGContext, left: MiddleSlot,
+                                   right: MiddleSlot, agents: AgentsSnapshot,
+                                   disk: DiskSnapshot, diskIO: DiskIOSnapshot,
+                                   network: NetworkSnapshot,
                                    tokenUsage: TokenUsageSnapshot) {
-        switch mode {
-        case .codex:
-            renderSingleAgent(ctx, name: "CODEX", accent: Color.cyan,
-                              usage: agents.codex)
-        case .claude:
-            renderSingleAgent(ctx, name: "CLAUDE", accent: Color.claude,
-                              usage: agents.claude)
-        case .agents:
-            renderAgents(ctx, agents: agents)
-        case .diskNetwork:
-            renderDiskNetwork(ctx, disk: disk, diskIO: diskIO, network: network)
-        case .tokenUsage:
-            renderTokenUsage(ctx, tokenUsage: tokenUsage)
-        }
-    }
-
-    private func renderSingleAgent(_ ctx: CGContext, name: String,
-                                   accent: CGColor, usage: AgentUsage) {
         let x = Layout.panelX(1)
         let pw = Layout.panelWidth * 3 + Layout.gap * 2
         let py = Layout.panelY
         let ph = Layout.panelHeight
 
-        Draw.panel(ctx, x: x, y: py, w: pw, h: ph, accent: accent)
-        Draw.text(ctx, "\(name) AGENT", x: x + 20, y: py + 14,
-                  font: Fonts.system(24, weight: .bold), color: accent)
-        renderAgentColumn(ctx, x: x + 22, w: pw - 44, py: py,
-                          name: name, accent: accent, usage: usage)
+        Draw.panel(ctx, x: x, y: py, w: pw, h: ph, accent: Color.purple)
+
+        let midX = x + pw / 2
+        Draw.line(ctx, from: CGPoint(x: midX, y: py + 18),
+                  to: CGPoint(x: midX, y: py + ph - 14), color: Color.border)
+
+        let colW = pw / 2 - 40
+        renderMiddleSlot(ctx, slot: left, x: x + 22, w: colW, py: py, ph: ph,
+                         agents: agents, disk: disk, diskIO: diskIO,
+                         network: network, tokenUsage: tokenUsage)
+        renderMiddleSlot(ctx, slot: right, x: midX + 18, w: colW, py: py, ph: ph,
+                         agents: agents, disk: disk, diskIO: diskIO,
+                         network: network, tokenUsage: tokenUsage)
+    }
+
+    private func renderMiddleSlot(_ ctx: CGContext, slot: MiddleSlot,
+                                  x: Int, w: Int, py: Int, ph: Int,
+                                  agents: AgentsSnapshot, disk: DiskSnapshot,
+                                  diskIO: DiskIOSnapshot, network: NetworkSnapshot,
+                                  tokenUsage: TokenUsageSnapshot) {
+        switch slot {
+        case .codex:
+            renderAgentColumn(ctx, x: x, w: w, py: py,
+                              name: "CODEX", accent: Color.cyan,
+                              usage: agents.codex)
+        case .claude:
+            renderAgentColumn(ctx, x: x, w: w, py: py,
+                              name: "CLAUDE", accent: Color.claude,
+                              usage: agents.claude)
+        case .disk:
+            renderDiskColumn(ctx, x: x, w: w, py: py, ph: ph,
+                             disk: disk, diskIO: diskIO)
+        case .network:
+            renderNetworkColumn(ctx, x: x, w: w, py: py, ph: ph,
+                                network: network)
+        case .tokenUsage:
+            renderTokenColumn(ctx, x: x, w: w, py: py, ph: ph,
+                              tokenUsage: tokenUsage)
+        }
+    }
+
+    private func renderTokenColumn(_ ctx: CGContext, x: Int, w: Int,
+                                   py: Int, ph: Int,
+                                   tokenUsage: TokenUsageSnapshot) {
+        Draw.text(ctx, "TOKEN USAGE", x: x, y: py + 50,
+                  font: Fonts.system(24, weight: .bold), color: Color.claude)
+
+        if tokenUsage.isEmpty {
+            Draw.centeredText(ctx, "No tokscale data",
+                              cx: x + w / 2, y: py + ph / 2,
+                              font: Fonts.system(20), color: Color.textD)
+            return
+        }
+
+        let total = tokenUsage.totalInput + tokenUsage.totalOutput
+            + tokenUsage.totalCacheRead
+        Draw.text(ctx, "Today", x: x, y: py + 98,
+                  font: Fonts.system(18), color: Color.textL)
+        Draw.text(ctx, formatCount(total), x: x, y: py + 126,
+                  font: Fonts.system(54, weight: .bold), color: Color.textW)
+
+        let rows: [(String, String, CGColor)] = [
+            ("Input", formatCount(tokenUsage.totalInput), Color.cyan),
+            ("Output", formatCount(tokenUsage.totalOutput), Color.green),
+            ("Cache", formatCount(tokenUsage.totalCacheRead), Color.purple),
+            ("Messages", "\(tokenUsage.totalMessages)", Color.textW),
+            ("Cost", formatCost(tokenUsage.totalCost), Color.claude),
+        ]
+        var y = py + 215
+        for row in rows {
+            Draw.text(ctx, row.0, x: x, y: y,
+                      font: Fonts.system(19), color: Color.textL)
+            let valueFont = Fonts.system(24, weight: .semibold)
+            let valueW = (row.1 as NSString).size(
+                withAttributes: [.font: valueFont]).width
+            Draw.text(ctx, row.1, x: Int(CGFloat(x + w) - valueW), y: y - 3,
+                      font: valueFont, color: row.2)
+            y += 45
+        }
     }
 
     private func renderAgents(_ ctx: CGContext, agents: AgentsSnapshot) {
