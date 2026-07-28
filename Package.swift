@@ -32,6 +32,7 @@ let package = Package(
                 .product(name: "Sparkle", package: "Sparkle"),
             ],
             path: "Sources/MacTR",
+            exclude: ["Resources"],
             swiftSettings: [
                 .unsafeFlags(["-I/opt/homebrew/include/libusb-1.0"]),
             ],

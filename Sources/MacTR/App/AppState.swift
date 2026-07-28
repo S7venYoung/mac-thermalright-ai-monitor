@@ -20,6 +20,16 @@ enum DisplaySet: String, CaseIterable, Identifiable, Sendable {
     var id: String { rawValue }
 }
 
+enum MiddlePanelMode: String, CaseIterable, Identifiable, Sendable {
+    case codex = "Codex"
+    case claude = "Claude"
+    case agents = "Claude + Codex"
+    case diskNetwork = "Disk + Network"
+    case tokenUsage = "Token Usage"
+
+    var id: String { rawValue }
+}
+
 // MARK: - AppState
 
 @Observable
@@ -36,6 +46,9 @@ final class AppState {
     var brightness: Int = 5
     var refreshInterval: Double = 0.5
     var rotateDisplay: Bool = false
+    var middlePanel: MiddlePanelMode =
+        MiddlePanelMode(rawValue: UserDefaults.standard.string(
+            forKey: "middlePanelMode") ?? "") ?? .codex
 
     // Metrics (for menu bar display)
     var frameCount = 0
@@ -66,7 +79,8 @@ final class AppState {
             }
         }
         engine = eng
-        eng.start(set: currentSet, brightness: brightness, interval: refreshInterval, rotate: rotateDisplay)
+        eng.start(set: currentSet, middlePanel: middlePanel, brightness: brightness,
+                  interval: refreshInterval, rotate: rotateDisplay)
     }
 
     func stop() {
@@ -89,7 +103,10 @@ final class AppState {
 
     /// Called when user changes display set, brightness, or interval
     func applySettings() {
-        engine?.updateSettings(set: currentSet, brightness: brightness, interval: refreshInterval, rotate: rotateDisplay)
+        UserDefaults.standard.set(middlePanel.rawValue, forKey: "middlePanelMode")
+        engine?.updateSettings(set: currentSet, middlePanel: middlePanel,
+                               brightness: brightness, interval: refreshInterval,
+                               rotate: rotateDisplay)
     }
 
     /// Latest rendered frame for the on-Mac preview window
@@ -122,6 +139,7 @@ final class DisplayEngine: @unchecked Sendable {
 
     // Settings (atomically accessed)
     private var currentSet: DisplaySet = .systemMonitor
+    private var middlePanel: MiddlePanelMode = .codex
     private var brightness: Int = 5
     private var interval: Double = 0.5
     private var rotateDisplay: Bool = false
@@ -133,11 +151,14 @@ final class DisplayEngine: @unchecked Sendable {
         self.statusCallback = statusCallback
     }
 
-    func start(set: DisplaySet, brightness: Int, interval: Double, rotate: Bool) {
+    func start(set: DisplaySet, middlePanel: MiddlePanelMode, brightness: Int,
+               interval: Double, rotate: Bool) {
         self.currentSet = set
+        self.middlePanel = middlePanel
         self.brightness = brightness
         self.interval = interval
         self.rotateDisplay = rotate
+        monitorRenderer.setMiddlePanel(middlePanel)
 
         usbQueue.async { [weak self] in
             guard let self else { return }
@@ -171,12 +192,15 @@ final class DisplayEngine: @unchecked Sendable {
         monitorRenderer.render()
     }
 
-    func updateSettings(set: DisplaySet, brightness: Int, interval: Double, rotate: Bool) {
-        log("[Engine] Settings updated: set=\(set.rawValue), brightness=\(brightness), interval=\(interval), rotate=\(rotate)")
+    func updateSettings(set: DisplaySet, middlePanel: MiddlePanelMode,
+                        brightness: Int, interval: Double, rotate: Bool) {
+        log("[Engine] Settings updated: set=\(set.rawValue), panel=\(middlePanel.rawValue), brightness=\(brightness), interval=\(interval), rotate=\(rotate)")
         self.currentSet = set
+        self.middlePanel = middlePanel
         self.brightness = brightness
         self.interval = interval
         self.rotateDisplay = rotate
+        monitorRenderer.setMiddlePanel(middlePanel)
     }
 
     // MARK: - Private (all on usbQueue)

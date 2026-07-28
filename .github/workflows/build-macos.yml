@@ -47,6 +47,9 @@ jobs:
           cp "$bin_dir/MacTR" "$executable"
           chmod +x "$executable"
 
+          cp Sources/MacTR/Resources/AppIcon.icns \
+            "$app_dir/Contents/Resources/AppIcon.icns"
+
           test -d "$bin_dir/Sparkle.framework"
           cp -R "$bin_dir/Sparkle.framework" "$frameworks_dir/"
 

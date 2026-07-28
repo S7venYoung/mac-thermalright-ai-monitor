@@ -30,10 +30,9 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
     private var _network: NetworkSnapshot?
     private var _tokenUsage: TokenUsageSnapshot?
 
-    // Panel rotation
-    private var currentMiddlePanel = 0
-    private var lastPanelSwitch = Date()
-    private let rotationInterval: TimeInterval = 30
+    // User-selected fixed middle panel
+    private let panelLock = NSLock()
+    private var middlePanel: MiddlePanelMode = .codex
 
     // Reusable CGContext — avoids allocating 3.6MB every 0.5s (prevents CG raster data leak)
     private var reusableCtx: CGContext?
@@ -100,16 +99,16 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
         metricsRunning = false
     }
 
-    /// Returns the current middle panel index (0=Agents, 1=Disk·Network, 2=TokenUsage).
-    /// Advances one slot every `rotationInterval` seconds.
-    private func resolveMiddlePanel() -> Int {
-        let elapsed = Date().timeIntervalSince(lastPanelSwitch)
-        if elapsed >= rotationInterval {
-            let steps = Int(elapsed / rotationInterval)
-            currentMiddlePanel = (currentMiddlePanel + steps) % 3
-            lastPanelSwitch = lastPanelSwitch.addingTimeInterval(Double(steps) * rotationInterval)
-        }
-        return currentMiddlePanel
+    func setMiddlePanel(_ panel: MiddlePanelMode) {
+        panelLock.lock()
+        middlePanel = panel
+        panelLock.unlock()
+    }
+
+    private func selectedMiddlePanel() -> MiddlePanelMode {
+        panelLock.lock()
+        defer { panelLock.unlock() }
+        return middlePanel
     }
 
     /// True when a column has a live animation (breathing while working, or the
@@ -120,8 +119,17 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
         // Heavy CPU → Pikachu crackles with electricity, worth animating smoothly
         if let c = _cpu, c.total > 55 { return true }
         guard let a = _agents else { return false }
-        return a.claude.isWorking || a.claude.needsAttention
-            || a.codex.isWorking || a.codex.needsAttention
+        switch selectedMiddlePanel() {
+        case .codex:
+            return a.codex.isWorking || a.codex.needsAttention
+        case .claude:
+            return a.claude.isWorking || a.claude.needsAttention
+        case .agents:
+            return a.claude.isWorking || a.claude.needsAttention
+                || a.codex.isWorking || a.codex.needsAttention
+        case .diskNetwork, .tokenUsage:
+            return false
+        }
     }
 
     private func metricsLoop() {
@@ -246,7 +254,7 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
 
     /// Render one demo frame with the showcase data (for --snapshot).
     func renderSimulated(coreCount: Int) -> CGImage? {
-        let (cpu, mem, temp, sys, agents, _, _, _, _) = demoData()
+        let (cpu, mem, temp, sys, agents, disk, diskIO, network, tokenUsage) = demoData()
         let w = Layout.width, h = Layout.height
         let colorSpace = CGColorSpaceCreateDeviceRGB()
         guard let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8,
@@ -256,7 +264,9 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
         ctx.translateBy(x: 0, y: CGFloat(h)); ctx.scaleBy(x: 1, y: -1)
         Draw.gradientBackground(ctx)
         renderCPU(ctx, cpu: cpu, temp: temp, agentsBusy: true)
-        renderAgents(ctx, agents: agents)
+        renderMiddlePanel(ctx, mode: selectedMiddlePanel(), agents: agents,
+                          disk: disk, diskIO: diskIO, network: network,
+                          tokenUsage: tokenUsage)
         renderMemory(ctx, mem: mem, sys: sys, agentsBusy: true)
         return ctx.makeImage()
     }
@@ -321,18 +331,24 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
         Draw.gradientBackground(ctx)
 
         // Panels
-        let agentsBusy = agents.claude.isWorking || agents.claude.needsAttention
-            || agents.codex.isWorking || agents.codex.needsAttention
+        let panel = selectedMiddlePanel()
+        let agentsBusy: Bool
+        switch panel {
+        case .codex:
+            agentsBusy = agents.codex.isWorking || agents.codex.needsAttention
+        case .claude:
+            agentsBusy = agents.claude.isWorking || agents.claude.needsAttention
+        case .agents:
+            agentsBusy = agents.claude.isWorking || agents.claude.needsAttention
+                || agents.codex.isWorking || agents.codex.needsAttention
+        case .diskNetwork, .tokenUsage:
+            agentsBusy = false
+        }
         renderCPU(ctx, cpu: cpu, temp: temp, agentsBusy: agentsBusy)
 
-        // Middle panel rotation: AI AGENTS → DISK · NETWORK → TOKEN USAGE
-        let middlePanel = resolveMiddlePanel()
-        switch middlePanel {
-        case 0: renderAgents(ctx, agents: agents)
-        case 1: renderDiskNetwork(ctx, disk: disk, diskIO: diskIO, network: network)
-        case 2: renderTokenUsage(ctx, tokenUsage: tokenUsage)
-        default: renderAgents(ctx, agents: agents)
-        }
+        renderMiddlePanel(ctx, mode: panel, agents: agents,
+                          disk: disk, diskIO: diskIO, network: network,
+                          tokenUsage: tokenUsage)
 
         renderMemory(ctx, mem: mem, sys: sys, agentsBusy: agentsBusy)
 
@@ -941,6 +957,40 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
     }
 
     // MARK: - AI Agents Panel (triple width)
+
+    private func renderMiddlePanel(_ ctx: CGContext, mode: MiddlePanelMode,
+                                   agents: AgentsSnapshot, disk: DiskSnapshot,
+                                   diskIO: DiskIOSnapshot, network: NetworkSnapshot,
+                                   tokenUsage: TokenUsageSnapshot) {
+        switch mode {
+        case .codex:
+            renderSingleAgent(ctx, name: "CODEX", accent: Color.cyan,
+                              usage: agents.codex)
+        case .claude:
+            renderSingleAgent(ctx, name: "CLAUDE", accent: Color.claude,
+                              usage: agents.claude)
+        case .agents:
+            renderAgents(ctx, agents: agents)
+        case .diskNetwork:
+            renderDiskNetwork(ctx, disk: disk, diskIO: diskIO, network: network)
+        case .tokenUsage:
+            renderTokenUsage(ctx, tokenUsage: tokenUsage)
+        }
+    }
+
+    private func renderSingleAgent(_ ctx: CGContext, name: String,
+                                   accent: CGColor, usage: AgentUsage) {
+        let x = Layout.panelX(1)
+        let pw = Layout.panelWidth * 3 + Layout.gap * 2
+        let py = Layout.panelY
+        let ph = Layout.panelHeight
+
+        Draw.panel(ctx, x: x, y: py, w: pw, h: ph, accent: accent)
+        Draw.text(ctx, "\(name) AGENT", x: x + 20, y: py + 14,
+                  font: Fonts.system(24, weight: .bold), color: accent)
+        renderAgentColumn(ctx, x: x + 22, w: pw - 44, py: py,
+                          name: name, accent: accent, usage: usage)
+    }
 
     private func renderAgents(_ ctx: CGContext, agents: AgentsSnapshot) {
         let x = Layout.panelX(1)

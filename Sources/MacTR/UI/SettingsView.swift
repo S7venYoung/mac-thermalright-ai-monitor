@@ -74,6 +74,20 @@ struct SettingsView: View {
                 }
             }
 
+            Section("Middle Panel") {
+                Picker("Show", selection: $state.middlePanel) {
+                    ForEach(MiddlePanelMode.allCases) { panel in
+                        Text(panel.rawValue).tag(panel)
+                    }
+                }
+                .onChange(of: state.middlePanel) {
+                    state.applySettings()
+                }
+                Text("The selected panel stays fixed and does not rotate automatically.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             Section("Brightness") {
                 HStack {
                     Slider(value: brightnessBinding, in: 1...10, step: 1) {
