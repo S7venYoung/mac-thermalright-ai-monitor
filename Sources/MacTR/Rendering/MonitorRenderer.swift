@@ -70,12 +70,10 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
         metricsRunning = true
         lock.unlock()
         log("[Metrics] Starting collection...")
-        let configuredSlots = selectedMiddleSlots()
-        if configuredSlots.0 == .keyStats
-            || configuredSlots.1 == .keyStats
-            || configuredSlots.2 == .keyStats {
-            keyStatsCollector.start(requestPermission: true)
-        }
+        // KeyStats is a background accumulator. Keep it running for the whole
+        // app session so opening its panel later shows the complete day rather
+        // than only activity recorded while the panel was visible.
+        keyStatsCollector.start(requestPermission: true)
         // First pass: prime CPU ticks (deltas will be zero)
         let cpu0 = collector.collectCPU()
         let mem = collector.collectMemory()
@@ -118,12 +116,6 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
         middleCenter = center
         middleRight = right
         panelLock.unlock()
-
-        if left == .keyStats || center == .keyStats || right == .keyStats {
-            keyStatsCollector.start(requestPermission: true)
-        } else {
-            keyStatsCollector.stop()
-        }
     }
 
     private func selectedMiddleSlots() -> (MiddleSlot, MiddleSlot, MiddleSlot) {

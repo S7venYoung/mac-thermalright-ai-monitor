@@ -108,6 +108,8 @@ final class KeyStatsCollector: @unchecked Sendable {
 
     func stop() {
         lock.lock()
+        rolloverIfNeeded()
+        saveLocked()
         let runLoop = eventRunLoop
         tracking = false
         starting = false
