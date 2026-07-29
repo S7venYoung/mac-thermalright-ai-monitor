@@ -21,6 +21,20 @@ enum DisplaySet: String, CaseIterable, Identifiable, Sendable {
     var displayName: String { "系统监控" }
 }
 
+enum DisplayTheme: String, CaseIterable, Identifiable, Sendable {
+    case classic
+    case appleWatch
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .classic: "经典仪表盘"
+        case .appleWatch: "Apple Watch"
+        }
+    }
+}
+
 enum MiddleSlot: String, CaseIterable, Identifiable, Sendable {
     case codex = "Codex"
     case claude = "Claude"
@@ -63,6 +77,9 @@ final class AppState {
 
     // Display
     var currentSet: DisplaySet = .systemMonitor
+    var displayTheme =
+        DisplayTheme(rawValue: UserDefaults.standard.string(
+            forKey: "displayTheme") ?? "") ?? .classic
     var brightness: Int = 5
     var refreshInterval: Double = 0.5
     var rotateDisplay: Bool = false
@@ -152,7 +169,7 @@ final class AppState {
             }
         }
         engine = eng
-        eng.start(set: currentSet, middleLeft: middleLeft,
+        eng.start(set: currentSet, theme: displayTheme, middleLeft: middleLeft,
                   middleCenter: middleCenter, middleRight: middleRight,
                   middleLeftCarousel: middleLeftCarousel,
                   middleCenterCarousel: middleCenterCarousel,
@@ -195,6 +212,7 @@ final class AppState {
 
     /// Called when user changes display set, brightness, or interval
     func applySettings() {
+        UserDefaults.standard.set(displayTheme.rawValue, forKey: "displayTheme")
         UserDefaults.standard.set(middleLeft.rawValue, forKey: "middleLeftSlot")
         UserDefaults.standard.set(middleCenter.rawValue, forKey: "middleCenterSlot")
         UserDefaults.standard.set(middleRight.rawValue, forKey: "middleRightSlot")
@@ -224,7 +242,8 @@ final class AppState {
         UserDefaults.standard.set(weatherLatitude, forKey: "weatherLatitude")
         UserDefaults.standard.set(jdStatsURL, forKey: "jdStatsURL")
         UserDefaults.standard.set(jdStatsToken, forKey: "jdStatsToken")
-        engine?.updateSettings(set: currentSet, middleLeft: middleLeft,
+        engine?.updateSettings(set: currentSet, theme: displayTheme,
+                               middleLeft: middleLeft,
                                middleCenter: middleCenter, middleRight: middleRight,
                                middleLeftCarousel: middleLeftCarousel,
                                middleCenterCarousel: middleCenterCarousel,
@@ -280,6 +299,7 @@ final class DisplayEngine: @unchecked Sendable {
 
     // Settings (atomically accessed)
     private var currentSet: DisplaySet = .systemMonitor
+    private var displayTheme: DisplayTheme = .classic
     private var middleLeft: MiddleSlot = .codex
     private var middleCenter: MiddleSlot = .disk
     private var middleRight: MiddleSlot = .network
@@ -313,7 +333,7 @@ final class DisplayEngine: @unchecked Sendable {
         self.statusCallback = statusCallback
     }
 
-    func start(set: DisplaySet, middleLeft: MiddleSlot,
+    func start(set: DisplaySet, theme: DisplayTheme, middleLeft: MiddleSlot,
                middleCenter: MiddleSlot, middleRight: MiddleSlot,
                middleLeftCarousel: Bool,
                middleCenterCarousel: Bool,
@@ -331,6 +351,7 @@ final class DisplayEngine: @unchecked Sendable {
                jdStatsURL: String, jdStatsToken: String) {
         appActive = true
         self.currentSet = set
+        self.displayTheme = theme
         self.middleLeft = middleLeft
         self.middleCenter = middleCenter
         self.middleRight = middleRight
@@ -363,6 +384,7 @@ final class DisplayEngine: @unchecked Sendable {
             centerRotation: middleCenterRotation,
             rightRotation: middleRightRotation,
             carouselInterval: middleCarouselInterval)
+        monitorRenderer.setDisplayTheme(theme)
         monitorRenderer.setWeatherConfig(
             city: weatherCity, token: caiyunToken,
             longitude: weatherLongitude, latitude: weatherLatitude)
@@ -404,7 +426,8 @@ final class DisplayEngine: @unchecked Sendable {
         monitorRenderer.render()
     }
 
-    func updateSettings(set: DisplaySet, middleLeft: MiddleSlot,
+    func updateSettings(set: DisplaySet, theme: DisplayTheme,
+                        middleLeft: MiddleSlot,
                         middleCenter: MiddleSlot, middleRight: MiddleSlot,
                         middleLeftCarousel: Bool,
                         middleCenterCarousel: Bool,
@@ -421,8 +444,9 @@ final class DisplayEngine: @unchecked Sendable {
                         weatherLatitude: Double,
                         calendarSubscriptionURL: String,
                         jdStatsURL: String, jdStatsToken: String) {
-        log("[Engine] Settings updated: set=\(set.rawValue), middle=\(middleLeft.rawValue)+\(middleCenter.rawValue)+\(middleRight.rawValue), brightness=\(brightness), interval=\(interval), rotate=\(rotate)")
+        log("[Engine] Settings updated: set=\(set.rawValue), theme=\(theme.rawValue), middle=\(middleLeft.rawValue)+\(middleCenter.rawValue)+\(middleRight.rawValue), brightness=\(brightness), interval=\(interval), rotate=\(rotate)")
         self.currentSet = set
+        self.displayTheme = theme
         self.middleLeft = middleLeft
         self.middleCenter = middleCenter
         self.middleRight = middleRight
@@ -455,6 +479,7 @@ final class DisplayEngine: @unchecked Sendable {
             centerRotation: middleCenterRotation,
             rightRotation: middleRightRotation,
             carouselInterval: middleCarouselInterval)
+        monitorRenderer.setDisplayTheme(theme)
         monitorRenderer.setWeatherConfig(
             city: weatherCity, token: caiyunToken,
             longitude: weatherLongitude, latitude: weatherLatitude)
