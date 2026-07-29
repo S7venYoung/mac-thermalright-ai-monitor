@@ -44,6 +44,11 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
     private var middleLeftCarousel = false
     private var middleCenterCarousel = false
     private var middleRightCarousel = false
+    private var middleLeftRotation: Set<MiddleSlot> = [.codex, .disk]
+    private var middleCenterRotation: Set<MiddleSlot> = [
+        .disk, .weather, .calendar,
+    ]
+    private var middleRightRotation: Set<MiddleSlot> = [.network, .keyStats]
     private var middleCarouselInterval: Double = 15
     private var weatherCity = "上海"
     private var caiyunToken = ""
@@ -124,7 +129,11 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
     func setMiddleSlots(
         left: MiddleSlot, center: MiddleSlot, right: MiddleSlot,
         leftCarousel: Bool = false, centerCarousel: Bool = false,
-        rightCarousel: Bool = false, carouselInterval: Double = 15
+        rightCarousel: Bool = false,
+        leftRotation: Set<MiddleSlot> = [.codex, .disk],
+        centerRotation: Set<MiddleSlot> = [.disk, .weather, .calendar],
+        rightRotation: Set<MiddleSlot> = [.network, .keyStats],
+        carouselInterval: Double = 15
     ) {
         panelLock.lock()
         middleLeft = left
@@ -133,6 +142,9 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
         middleLeftCarousel = leftCarousel
         middleCenterCarousel = centerCarousel
         middleRightCarousel = rightCarousel
+        middleLeftRotation = leftRotation
+        middleCenterRotation = centerRotation
+        middleRightRotation = rightRotation
         middleCarouselInterval = max(5, carouselInterval)
         panelLock.unlock()
     }
@@ -166,19 +178,25 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
     private func selectedMiddleSlots() -> (MiddleSlot, MiddleSlot, MiddleSlot) {
         panelLock.lock()
         defer { panelLock.unlock() }
-        let modules: [MiddleSlot] = [
-            .codex, .disk, .network, .weather, .keyStats, .calendar,
-        ]
         let step = Int(Date().timeIntervalSince1970 / middleCarouselInterval)
-        func slot(_ fixed: MiddleSlot, enabled: Bool, phase: Int) -> MiddleSlot {
+        func slot(
+            _ fixed: MiddleSlot, enabled: Bool, choices: Set<MiddleSlot>
+        ) -> MiddleSlot {
             guard enabled else { return fixed }
-            let base = modules.firstIndex(of: fixed) ?? phase
-            return modules[(base + step) % modules.count]
+            let ordered = MiddleSlot.allCases.filter(choices.contains)
+            guard !ordered.isEmpty else { return fixed }
+            return ordered[step % ordered.count]
         }
         return (
-            slot(middleLeft, enabled: middleLeftCarousel, phase: 0),
-            slot(middleCenter, enabled: middleCenterCarousel, phase: 1),
-            slot(middleRight, enabled: middleRightCarousel, phase: 2))
+            slot(
+                middleLeft, enabled: middleLeftCarousel,
+                choices: middleLeftRotation),
+            slot(
+                middleCenter, enabled: middleCenterCarousel,
+                choices: middleCenterRotation),
+            slot(
+                middleRight, enabled: middleRightCarousel,
+                choices: middleRightRotation))
     }
 
     private func selectedCalendarURL() -> String {

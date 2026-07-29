@@ -93,6 +93,18 @@ final class AppState {
         UserDefaults.standard.bool(forKey: "middleCenterCarousel")
     var middleRightCarousel =
         UserDefaults.standard.bool(forKey: "middleRightCarousel")
+    var middleLeftRotation: Set<MiddleSlot> = Set(
+        (UserDefaults.standard.stringArray(forKey: "middleLeftRotation")
+            ?? ["Codex", "Disk"])
+            .compactMap(MiddleSlot.init(rawValue:)))
+    var middleCenterRotation: Set<MiddleSlot> = Set(
+        (UserDefaults.standard.stringArray(forKey: "middleCenterRotation")
+            ?? ["Disk", "Weather", "Calendar"])
+            .compactMap(MiddleSlot.init(rawValue:)))
+    var middleRightRotation: Set<MiddleSlot> = Set(
+        (UserDefaults.standard.stringArray(forKey: "middleRightRotation")
+            ?? ["Network", "KeyStats"])
+            .compactMap(MiddleSlot.init(rawValue:)))
     var middleCarouselInterval =
         UserDefaults.standard.object(forKey: "middleCarouselInterval") as? Double
             ?? 15
@@ -136,6 +148,9 @@ final class AppState {
                   middleLeftCarousel: middleLeftCarousel,
                   middleCenterCarousel: middleCenterCarousel,
                   middleRightCarousel: middleRightCarousel,
+                  middleLeftRotation: middleLeftRotation,
+                  middleCenterRotation: middleCenterRotation,
+                  middleRightRotation: middleRightRotation,
                   middleCarouselInterval: middleCarouselInterval,
                   brightness: brightness,
                   interval: refreshInterval, rotate: rotateDisplay,
@@ -179,6 +194,12 @@ final class AppState {
         UserDefaults.standard.set(
             middleRightCarousel, forKey: "middleRightCarousel")
         UserDefaults.standard.set(
+            middleLeftRotation.map(\.rawValue), forKey: "middleLeftRotation")
+        UserDefaults.standard.set(
+            middleCenterRotation.map(\.rawValue), forKey: "middleCenterRotation")
+        UserDefaults.standard.set(
+            middleRightRotation.map(\.rawValue), forKey: "middleRightRotation")
+        UserDefaults.standard.set(
             middleCarouselInterval, forKey: "middleCarouselInterval")
         UserDefaults.standard.set(
             calendarSubscriptionURL, forKey: "calendarSubscriptionURL")
@@ -196,6 +217,9 @@ final class AppState {
                                middleLeftCarousel: middleLeftCarousel,
                                middleCenterCarousel: middleCenterCarousel,
                                middleRightCarousel: middleRightCarousel,
+                               middleLeftRotation: middleLeftRotation,
+                               middleCenterRotation: middleCenterRotation,
+                               middleRightRotation: middleRightRotation,
                                middleCarouselInterval: middleCarouselInterval,
                                brightness: brightness, interval: refreshInterval,
                                rotate: rotateDisplay,
@@ -248,6 +272,11 @@ final class DisplayEngine: @unchecked Sendable {
     private var middleLeftCarousel = false
     private var middleCenterCarousel = false
     private var middleRightCarousel = false
+    private var middleLeftRotation: Set<MiddleSlot> = [.codex, .disk]
+    private var middleCenterRotation: Set<MiddleSlot> = [
+        .disk, .weather, .calendar,
+    ]
+    private var middleRightRotation: Set<MiddleSlot> = [.network, .keyStats]
     private var middleCarouselInterval: Double = 15
     private var brightness: Int = 5
     private var interval: Double = 0.5
@@ -273,6 +302,9 @@ final class DisplayEngine: @unchecked Sendable {
                middleLeftCarousel: Bool,
                middleCenterCarousel: Bool,
                middleRightCarousel: Bool,
+               middleLeftRotation: Set<MiddleSlot>,
+               middleCenterRotation: Set<MiddleSlot>,
+               middleRightRotation: Set<MiddleSlot>,
                middleCarouselInterval: Double,
                brightness: Int, interval: Double, rotate: Bool,
                screenScheduleEnabled: Bool, screenOffMinutes: Int,
@@ -288,6 +320,9 @@ final class DisplayEngine: @unchecked Sendable {
         self.middleLeftCarousel = middleLeftCarousel
         self.middleCenterCarousel = middleCenterCarousel
         self.middleRightCarousel = middleRightCarousel
+        self.middleLeftRotation = middleLeftRotation
+        self.middleCenterRotation = middleCenterRotation
+        self.middleRightRotation = middleRightRotation
         self.middleCarouselInterval = middleCarouselInterval
         self.brightness = brightness
         self.interval = interval
@@ -305,6 +340,9 @@ final class DisplayEngine: @unchecked Sendable {
             leftCarousel: middleLeftCarousel,
             centerCarousel: middleCenterCarousel,
             rightCarousel: middleRightCarousel,
+            leftRotation: middleLeftRotation,
+            centerRotation: middleCenterRotation,
+            rightRotation: middleRightRotation,
             carouselInterval: middleCarouselInterval)
         monitorRenderer.setWeatherConfig(
             city: weatherCity, token: caiyunToken,
@@ -350,6 +388,9 @@ final class DisplayEngine: @unchecked Sendable {
                         middleLeftCarousel: Bool,
                         middleCenterCarousel: Bool,
                         middleRightCarousel: Bool,
+                        middleLeftRotation: Set<MiddleSlot>,
+                        middleCenterRotation: Set<MiddleSlot>,
+                        middleRightRotation: Set<MiddleSlot>,
                         middleCarouselInterval: Double,
                         brightness: Int,
                         interval: Double, rotate: Bool,
@@ -366,6 +407,9 @@ final class DisplayEngine: @unchecked Sendable {
         self.middleLeftCarousel = middleLeftCarousel
         self.middleCenterCarousel = middleCenterCarousel
         self.middleRightCarousel = middleRightCarousel
+        self.middleLeftRotation = middleLeftRotation
+        self.middleCenterRotation = middleCenterRotation
+        self.middleRightRotation = middleRightRotation
         self.middleCarouselInterval = middleCarouselInterval
         self.brightness = brightness
         self.interval = interval
@@ -383,6 +427,9 @@ final class DisplayEngine: @unchecked Sendable {
             leftCarousel: middleLeftCarousel,
             centerCarousel: middleCenterCarousel,
             rightCarousel: middleRightCarousel,
+            leftRotation: middleLeftRotation,
+            centerRotation: middleCenterRotation,
+            rightRotation: middleRightRotation,
             carouselInterval: middleCarouselInterval)
         monitorRenderer.setWeatherConfig(
             city: weatherCity, token: caiyunToken,

@@ -87,6 +87,8 @@ struct SettingsView: View {
                     .onChange(of: state.middleLeftCarousel) {
                         state.applySettings()
                     }
+                moduleMultiPicker("左侧轮播内容", selection: $state.middleLeftRotation)
+                    .disabled(!state.middleLeftCarousel)
 
                 Picker("中间", selection: $state.middleCenter) {
                     ForEach(MiddleSlot.allCases) { slot in
@@ -100,6 +102,9 @@ struct SettingsView: View {
                     .onChange(of: state.middleCenterCarousel) {
                         state.applySettings()
                     }
+                moduleMultiPicker(
+                    "中间轮播内容", selection: $state.middleCenterRotation)
+                    .disabled(!state.middleCenterCarousel)
 
                 Picker("右侧", selection: $state.middleRight) {
                     ForEach(MiddleSlot.allCases) { slot in
@@ -113,6 +118,9 @@ struct SettingsView: View {
                     .onChange(of: state.middleRightCarousel) {
                         state.applySettings()
                     }
+                moduleMultiPicker(
+                    "右侧轮播内容", selection: $state.middleRightRotation)
+                    .disabled(!state.middleRightCarousel)
 
                 Picker("轮播间隔", selection: $state.middleCarouselInterval) {
                     Text("10 秒").tag(10.0)
@@ -217,6 +225,42 @@ struct SettingsView: View {
     }
 
     // MARK: - Device Tab
+
+    private func moduleMultiPicker(
+        _ title: String, selection: Binding<Set<MiddleSlot>>
+    ) -> some View {
+        Menu {
+            ForEach(MiddleSlot.allCases) { slot in
+                Toggle(
+                    slot.displayName,
+                    isOn: Binding(
+                        get: { selection.wrappedValue.contains(slot) },
+                        set: { enabled in
+                            var updated = selection.wrappedValue
+                            if enabled {
+                                updated.insert(slot)
+                            } else if updated.count > 1 {
+                                updated.remove(slot)
+                            }
+                            selection.wrappedValue = updated
+                            state.applySettings()
+                        }))
+            }
+        } label: {
+            LabeledContent(title) {
+                Text(rotationSummary(selection.wrappedValue))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+        }
+    }
+
+    private func rotationSummary(_ modules: Set<MiddleSlot>) -> String {
+        MiddleSlot.allCases
+            .filter(modules.contains)
+            .map(\.displayName)
+            .joined(separator: "、")
+    }
 
     private var deviceSettings: some View {
         Form {
