@@ -29,6 +29,7 @@ enum MiddleSlot: String, CaseIterable, Identifiable, Sendable {
     case weather = "Weather"
     case keyStats = "KeyStats"
     case calendar = "Calendar"
+    case jdAlliance = "JD Alliance"
 
     var id: String { rawValue }
 
@@ -41,6 +42,7 @@ enum MiddleSlot: String, CaseIterable, Identifiable, Sendable {
         case .weather: "天气"
         case .keyStats: "键鼠统计"
         case .calendar: "日历"
+        case .jdAlliance: "京东联盟"
         }
     }
 }
@@ -110,6 +112,11 @@ final class AppState {
             ?? 15
     var calendarSubscriptionURL =
         UserDefaults.standard.string(forKey: "calendarSubscriptionURL") ?? ""
+    var jdStatsURL =
+        UserDefaults.standard.string(forKey: "jdStatsURL")
+            ?? "https://sku.xlnk.store/api/jd/stats"
+    var jdStatsToken =
+        UserDefaults.standard.string(forKey: "jdStatsToken") ?? ""
 
     // Metrics (for menu bar display)
     var frameCount = 0
@@ -160,7 +167,8 @@ final class AppState {
                   weatherCity: weatherCity, caiyunToken: caiyunToken,
                   weatherLongitude: weatherLongitude,
                   weatherLatitude: weatherLatitude,
-                  calendarSubscriptionURL: calendarSubscriptionURL)
+                  calendarSubscriptionURL: calendarSubscriptionURL,
+                  jdStatsURL: jdStatsURL, jdStatsToken: jdStatsToken)
     }
 
     func stop() {
@@ -212,6 +220,8 @@ final class AppState {
         UserDefaults.standard.set(
             weatherLongitude, forKey: "weatherLongitude")
         UserDefaults.standard.set(weatherLatitude, forKey: "weatherLatitude")
+        UserDefaults.standard.set(jdStatsURL, forKey: "jdStatsURL")
+        UserDefaults.standard.set(jdStatsToken, forKey: "jdStatsToken")
         engine?.updateSettings(set: currentSet, middleLeft: middleLeft,
                                middleCenter: middleCenter, middleRight: middleRight,
                                middleLeftCarousel: middleLeftCarousel,
@@ -230,7 +240,9 @@ final class AppState {
                                caiyunToken: caiyunToken,
                                weatherLongitude: weatherLongitude,
                                weatherLatitude: weatherLatitude,
-                               calendarSubscriptionURL: calendarSubscriptionURL)
+                               calendarSubscriptionURL: calendarSubscriptionURL,
+                               jdStatsURL: jdStatsURL,
+                               jdStatsToken: jdStatsToken)
     }
 
     /// Latest rendered frame for the on-Mac preview window
@@ -289,6 +301,8 @@ final class DisplayEngine: @unchecked Sendable {
     private var weatherLongitude = 121.4737
     private var weatherLatitude = 31.2304
     private var calendarSubscriptionURL = ""
+    private var jdStatsURL = ""
+    private var jdStatsToken = ""
 
     // Renderers
     private let monitorRenderer = MonitorRenderer()
@@ -311,7 +325,8 @@ final class DisplayEngine: @unchecked Sendable {
                screenOnMinutes: Int, weatherCity: String,
                caiyunToken: String, weatherLongitude: Double,
                weatherLatitude: Double,
-               calendarSubscriptionURL: String) {
+               calendarSubscriptionURL: String,
+               jdStatsURL: String, jdStatsToken: String) {
         appActive = true
         self.currentSet = set
         self.middleLeft = middleLeft
@@ -335,6 +350,8 @@ final class DisplayEngine: @unchecked Sendable {
         self.weatherLongitude = weatherLongitude
         self.weatherLatitude = weatherLatitude
         self.calendarSubscriptionURL = calendarSubscriptionURL
+        self.jdStatsURL = jdStatsURL
+        self.jdStatsToken = jdStatsToken
         monitorRenderer.setMiddleSlots(
             left: middleLeft, center: middleCenter, right: middleRight,
             leftCarousel: middleLeftCarousel,
@@ -349,6 +366,8 @@ final class DisplayEngine: @unchecked Sendable {
             longitude: weatherLongitude, latitude: weatherLatitude)
         monitorRenderer.setCalendarSubscription(
             urlString: calendarSubscriptionURL)
+        monitorRenderer.setJDStatsConfig(
+            urlString: jdStatsURL, token: jdStatsToken)
 
         usbQueue.async { [weak self] in
             guard let self else { return }
@@ -398,7 +417,8 @@ final class DisplayEngine: @unchecked Sendable {
                         screenOnMinutes: Int, weatherCity: String,
                         caiyunToken: String, weatherLongitude: Double,
                         weatherLatitude: Double,
-                        calendarSubscriptionURL: String) {
+                        calendarSubscriptionURL: String,
+                        jdStatsURL: String, jdStatsToken: String) {
         log("[Engine] Settings updated: set=\(set.rawValue), middle=\(middleLeft.rawValue)+\(middleCenter.rawValue)+\(middleRight.rawValue), brightness=\(brightness), interval=\(interval), rotate=\(rotate)")
         self.currentSet = set
         self.middleLeft = middleLeft
@@ -422,6 +442,8 @@ final class DisplayEngine: @unchecked Sendable {
         self.weatherLongitude = weatherLongitude
         self.weatherLatitude = weatherLatitude
         self.calendarSubscriptionURL = calendarSubscriptionURL
+        self.jdStatsURL = jdStatsURL
+        self.jdStatsToken = jdStatsToken
         monitorRenderer.setMiddleSlots(
             left: middleLeft, center: middleCenter, right: middleRight,
             leftCarousel: middleLeftCarousel,
@@ -436,6 +458,8 @@ final class DisplayEngine: @unchecked Sendable {
             longitude: weatherLongitude, latitude: weatherLatitude)
         monitorRenderer.setCalendarSubscription(
             urlString: calendarSubscriptionURL)
+        monitorRenderer.setJDStatsConfig(
+            urlString: jdStatsURL, token: jdStatsToken)
 
         usbQueue.async { [weak self] in
             guard let self, self.appActive, !self.running,
