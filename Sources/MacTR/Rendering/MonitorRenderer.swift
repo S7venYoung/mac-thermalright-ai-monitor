@@ -595,13 +595,11 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
         let py = 14
         let ph = 452
         let systemX = 14
-        let systemW = 350
-        let heroX = 374
-        let heroW = 720
-        let sideX = 1104
-        let sideW = 396
-        let farX = 1510
-        let farW = 396
+        let systemW = 344
+        let heroX = 372
+        let heroW = 716
+        let dashboardX = 1106
+        let dashboardW = 800
 
         Draw.panel(
             ctx, x: systemX, y: py, w: systemW, h: ph, accent: Color.cyan)
@@ -609,24 +607,22 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
             ctx, x: systemX, w: systemW, py: py,
             cpu: cpu, mem: mem, temp: temp)
 
-        renderAppleWatchComplication(
-            ctx, slot: slots.0, panelX: heroX, panelW: heroW,
-            py: py, ph: ph, agents: agents, disk: disk, diskIO: diskIO,
-            network: network, tokenUsage: tokenUsage, keyStats: keyStats,
-            weather: weather, calendarSnapshot: calendarSnapshot,
-            jdStats: jdStats, codexToken: codexToken)
-        renderAppleWatchComplication(
-            ctx, slot: slots.1, panelX: sideX, panelW: sideW,
-            py: py, ph: ph, agents: agents, disk: disk, diskIO: diskIO,
-            network: network, tokenUsage: tokenUsage, keyStats: keyStats,
-            weather: weather, calendarSnapshot: calendarSnapshot,
-            jdStats: jdStats, codexToken: codexToken)
-        renderAppleWatchComplication(
-            ctx, slot: slots.2, panelX: farX, panelW: farW,
-            py: py, ph: ph, agents: agents, disk: disk, diskIO: diskIO,
-            network: network, tokenUsage: tokenUsage, keyStats: keyStats,
-            weather: weather, calendarSnapshot: calendarSnapshot,
-            jdStats: jdStats, codexToken: codexToken)
+        if slots.0 == .token {
+            renderAppleWatchTokenHero(
+                ctx, x: heroX, w: heroW, py: py, ph: ph,
+                stats: codexToken, liveUsage: agents.codex)
+        } else {
+            renderAppleWatchComplication(
+                ctx, slot: slots.0, panelX: heroX, panelW: heroW,
+                py: py, ph: ph, agents: agents, disk: disk, diskIO: diskIO,
+                network: network, tokenUsage: tokenUsage, keyStats: keyStats,
+                weather: weather, calendarSnapshot: calendarSnapshot,
+                jdStats: jdStats, codexToken: codexToken)
+        }
+        renderAppleWatchDashboard(
+            ctx, x: dashboardX, w: dashboardW, py: py, ph: ph,
+            jdStats: jdStats, calendarSnapshot: calendarSnapshot,
+            weather: weather, network: network)
 
         if let sys {
             let hours = sys.uptimeSeconds / 3600
@@ -656,6 +652,332 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
             network: network, tokenUsage: tokenUsage, keyStats: keyStats,
             weather: weather, calendarSnapshot: calendarSnapshot,
             jdStats: jdStats, codexToken: codexToken)
+    }
+
+    private func renderAppleWatchTokenHero(
+        _ ctx: CGContext, x: Int, w: Int, py: Int, ph: Int,
+        stats: CodexTokenSnapshot, liveUsage: AgentUsage
+    ) {
+        Draw.panel(ctx, x: x, y: py, w: w, h: ph, accent: Color.cyan)
+        let left = x + 28
+        let right = x + w - 28
+        Draw.text(
+            ctx, "CODEX TOKEN", x: left, y: py + 17,
+            font: Fonts.system(19, weight: .bold), color: Color.cyan)
+        drawRightAligned(
+            ctx, "已更新  ●", rightX: right, y: py + 18,
+            font: Fonts.system(14, weight: .semibold), color: Color.green)
+
+        guard stats.available else {
+            Draw.centeredText(
+                ctx, stats.errorMessage, cx: x + w / 2, y: py + ph / 2,
+                font: Fonts.system(18), color: Color.textL)
+            return
+        }
+
+        let today = max(stats.todayTokens, liveUsage.todayTotalTokens)
+        Draw.text(
+            ctx, "今日", x: left, y: py + 69,
+            font: Fonts.system(20, weight: .semibold), color: Color.textS)
+        Draw.text(
+            ctx, formatTokensCN(today), x: left, y: py + 101,
+            font: Fonts.system(72, weight: .bold), color: Color.textW)
+        drawRightAligned(
+            ctx, "IN \(formatTokensCN(liveUsage.todayInputTokens))",
+            rightX: right, y: py + 91,
+            font: Fonts.system(18, weight: .semibold), color: Color.textS)
+        drawRightAligned(
+            ctx, "OUT \(formatTokensCN(liveUsage.todayOutputTokens))",
+            rightX: right, y: py + 124,
+            font: Fonts.system(18, weight: .semibold), color: Color.textS)
+
+        if let quota = stats.secondary ?? stats.primary {
+            let remaining = quota.remainingPercent ?? 0
+            let quotaColor: CGColor = remaining > 50
+                ? Color.green : (remaining > 20 ? Color.orange : Color.red)
+            Draw.text(
+                ctx, String(format: "本周额度剩余 %.0f%%", remaining),
+                x: left, y: py + 194,
+                font: Fonts.system(19, weight: .semibold), color: quotaColor)
+            if let reset = quota.resetsAt {
+                drawRightAligned(
+                    ctx, codexResetText(reset), rightX: right, y: py + 196,
+                    font: Fonts.system(15), color: Color.textL)
+            }
+            Draw.bar(
+                ctx, x: left, y: py + 225, w: w - 56, h: 12,
+                percent: remaining, color: Color.blue)
+        }
+
+        Draw.text(
+            ctx, "18 周活跃度", x: left, y: py + 259,
+            font: Fonts.system(16, weight: .semibold), color: Color.textL)
+        drawRightAligned(
+            ctx,
+            stats.resetCreditsAvailable.map { "可重置 \($0) 次" } ?? "可重置 --",
+            rightX: right, y: py + 259,
+            font: Fonts.system(15, weight: .semibold), color: Color.orange)
+        renderAppleWatchHeatStrip(
+            ctx, x: left, y: py + 293, w: w - 56,
+            dailyTokens: stats.dailyTokens, todayTokens: today)
+
+        let gap = 12
+        let cardW = (w - 56 - gap) / 2
+        drawAppleWatchValueCard(
+            ctx, x: left, y: py + 344, w: cardW,
+            title: "累计 TOKEN",
+            value: formatCodexTokenCN(stats.lifetimeTokens))
+        drawAppleWatchValueCard(
+            ctx, x: left + cardW + gap, y: py + 344, w: cardW,
+            title: "单日峰值",
+            value: formatCodexTokenCN(stats.peakDailyTokens))
+    }
+
+    private func renderAppleWatchHeatStrip(
+        _ ctx: CGContext, x: Int, y: Int, w: Int,
+        dailyTokens: [String: UInt64], todayTokens: UInt64
+    ) {
+        let count = 32
+        let gap = 5
+        let cell = max(7, (w - gap * (count - 1)) / count)
+        let values = dailyTokens.values.sorted()
+        let peak = max(UInt64(1), max(values.last ?? 0, todayTokens))
+        for index in 0..<count {
+            let source = values.isEmpty
+                ? UInt64((index % 6) * 10)
+                : values[index * values.count / count]
+            let ratio = sqrt(Double(source) / Double(peak))
+            let color = source == 0
+                ? Color.barBG
+                : (Color.cyan.copy(
+                    alpha: CGFloat(0.25 + ratio * 0.75)) ?? Color.cyan)
+            let rect = CGRect(
+                x: x + index * (cell + gap), y: y,
+                width: cell, height: 16)
+            ctx.setFillColor(color)
+            ctx.addPath(CGPath(
+                roundedRect: rect, cornerWidth: 4, cornerHeight: 4,
+                transform: nil))
+            ctx.fillPath()
+        }
+    }
+
+    private func drawAppleWatchValueCard(
+        _ ctx: CGContext, x: Int, y: Int, w: Int,
+        title: String, value: String
+    ) {
+        let rect = CGRect(x: x, y: y, width: w, height: 74)
+        ctx.setFillColor(CGColor(
+            red: 28/255, green: 28/255, blue: 30/255, alpha: 1))
+        ctx.addPath(CGPath(
+            roundedRect: rect, cornerWidth: 22, cornerHeight: 22,
+            transform: nil))
+        ctx.fillPath()
+        Draw.text(
+            ctx, title, x: x + 17, y: y + 13,
+            font: Fonts.system(14, weight: .medium), color: Color.textL)
+        drawRightAligned(
+            ctx, value, rightX: x + w - 17, y: y + 30,
+            font: Fonts.system(28, weight: .bold), color: Color.textW)
+    }
+
+    private func renderAppleWatchDashboard(
+        _ ctx: CGContext, x: Int, w: Int, py: Int, ph: Int,
+        jdStats: JDStatsSnapshot, calendarSnapshot: CalendarSnapshot,
+        weather: WeatherSnapshot, network: NetworkSnapshot
+    ) {
+        Draw.panel(ctx, x: x, y: py, w: w, h: ph, accent: Color.purple)
+        let inset = 20
+        let gap = 14
+        let topH = 190
+        let bottomY = py + 226
+        let bottomH = 204
+        let halfW = (w - inset * 2 - gap) / 2
+
+        drawAppleWatchJDCard(
+            ctx, x: x + inset, y: py + 20, w: halfW, h: topH,
+            stats: jdStats)
+        drawAppleWatchCalendarCard(
+            ctx, x: x + inset + halfW + gap, y: py + 20,
+            w: halfW, h: topH, snapshot: calendarSnapshot)
+
+        let thirdW = (w - inset * 2 - gap * 2) / 3
+        drawAppleWatchWeatherCard(
+            ctx, x: x + inset, y: bottomY, w: thirdW, h: bottomH,
+            weather: weather)
+        drawAppleWatchNetworkCard(
+            ctx, x: x + inset + thirdW + gap, y: bottomY,
+            w: thirdW, h: bottomH, network: network)
+        drawAppleWatchClockCard(
+            ctx, x: x + inset + (thirdW + gap) * 2, y: bottomY,
+            w: thirdW, h: bottomH)
+    }
+
+    private func fillAppleWatchCard(
+        _ ctx: CGContext, x: Int, y: Int, w: Int, h: Int
+    ) {
+        ctx.setFillColor(CGColor(
+            red: 28/255, green: 28/255, blue: 30/255, alpha: 1))
+        ctx.addPath(CGPath(
+            roundedRect: CGRect(x: x, y: y, width: w, height: h),
+            cornerWidth: 28, cornerHeight: 28, transform: nil))
+        ctx.fillPath()
+    }
+
+    private func drawAppleWatchJDCard(
+        _ ctx: CGContext, x: Int, y: Int, w: Int, h: Int,
+        stats: JDStatsSnapshot
+    ) {
+        fillAppleWatchCard(ctx, x: x, y: y, w: w, h: h)
+        Draw.text(
+            ctx, "京东联盟", x: x + 20, y: y + 16,
+            font: Fonts.system(17, weight: .bold), color: Color.orange)
+        drawRightAligned(
+            ctx, "今日", rightX: x + w - 20, y: y + 18,
+            font: Fonts.system(15), color: Color.textL)
+        guard stats.available else {
+            Draw.centeredText(
+                ctx, "暂无数据", cx: x + w / 2, y: y + 82,
+                font: Fonts.system(18), color: Color.textL)
+            return
+        }
+        Draw.text(
+            ctx, "\(stats.day.orders)", x: x + 20, y: y + 48,
+            font: Fonts.system(48, weight: .bold), color: Color.textW)
+        Draw.text(
+            ctx, "单", x: x + 65, y: y + 82,
+            font: Fonts.system(16), color: Color.textL)
+        Draw.text(
+            ctx, "销售 \(formatJDMoney(stats.day.estimatedSales))",
+            x: x + 20, y: y + 117,
+            font: Fonts.system(15), color: Color.cyan)
+        drawRightAligned(
+            ctx, "佣金 \(formatJDMoney(stats.day.estimatedCommission))",
+            rightX: x + w - 20, y: y + 117,
+            font: Fonts.system(15), color: Color.green)
+        Draw.text(
+            ctx, "本月 \(stats.month.orders) 单", x: x + 20, y: y + 157,
+            font: Fonts.system(14), color: Color.textL)
+        drawRightAligned(
+            ctx, "佣金 \(formatJDMoney(stats.month.estimatedCommission))",
+            rightX: x + w - 20, y: y + 157,
+            font: Fonts.system(14), color: Color.textL)
+    }
+
+    private func drawAppleWatchCalendarCard(
+        _ ctx: CGContext, x: Int, y: Int, w: Int, h: Int,
+        snapshot: CalendarSnapshot
+    ) {
+        fillAppleWatchCard(ctx, x: x, y: y, w: w, h: h)
+        let calendar = Calendar.current
+        let now = Date()
+        let day = calendar.component(.day, from: now)
+        let weekday = DateFormatter()
+        weekday.locale = Locale(identifier: "zh_CN")
+        weekday.dateFormat = "EEEE"
+        let month = DateFormatter()
+        month.locale = Locale(identifier: "zh_CN")
+        month.dateFormat = "yyyy 年 M 月"
+        Draw.text(
+            ctx, "日历", x: x + 20, y: y + 16,
+            font: Fonts.system(17, weight: .bold), color: Color.cyan)
+        drawRightAligned(
+            ctx, "今天", rightX: x + w - 20, y: y + 17,
+            font: Fonts.system(15, weight: .semibold), color: Color.green)
+        Draw.text(
+            ctx, "\(day)", x: x + 20, y: y + 49,
+            font: Fonts.system(53, weight: .bold), color: Color.textW)
+        Draw.text(
+            ctx, weekday.string(from: now), x: x + 90, y: y + 66,
+            font: Fonts.system(21, weight: .semibold), color: Color.textW)
+        Draw.text(
+            ctx, month.string(from: now), x: x + 90, y: y + 96,
+            font: Fonts.system(15), color: Color.textL)
+        Draw.line(
+            ctx, from: CGPoint(x: x + 20, y: y + 137),
+            to: CGPoint(x: x + w - 20, y: y + 137), color: Color.border)
+        let upcoming = snapshot.events.first { $0.date >= calendar.startOfDay(for: now) }
+        Draw.text(
+            ctx, upcoming?.title ?? "暂无近期日程",
+            x: x + 20, y: y + 154,
+            font: Fonts.system(15), color: Color.green)
+    }
+
+    private func drawAppleWatchWeatherCard(
+        _ ctx: CGContext, x: Int, y: Int, w: Int, h: Int,
+        weather: WeatherSnapshot
+    ) {
+        fillAppleWatchCard(ctx, x: x, y: y, w: w, h: h)
+        Draw.text(
+            ctx, "天气", x: x + 18, y: y + 16,
+            font: Fonts.system(17, weight: .bold), color: Color.cyan)
+        guard weather.available else {
+            Draw.centeredText(
+                ctx, "未配置", cx: x + w / 2, y: y + 90,
+                font: Fonts.system(18), color: Color.textL)
+            return
+        }
+        Draw.text(
+            ctx, "\(Int(weather.temperature.rounded()))°",
+            x: x + 18, y: y + 54,
+            font: Fonts.system(48, weight: .bold), color: Color.textW)
+        drawRightAligned(
+            ctx, weather.icon, rightX: x + w - 20, y: y + 46,
+            font: Fonts.system(49), color: Color.orange)
+        Draw.text(
+            ctx, "\(weather.condition) · \(weather.airQuality)",
+            x: x + 18, y: y + 118,
+            font: Fonts.system(16, weight: .semibold), color: Color.cyan)
+        Draw.text(
+            ctx, truncate(weather.rainForecast, font: Fonts.system(13), maxW: CGFloat(w - 36)),
+            x: x + 18, y: y + 157,
+            font: Fonts.system(13), color: Color.textL)
+    }
+
+    private func drawAppleWatchNetworkCard(
+        _ ctx: CGContext, x: Int, y: Int, w: Int, h: Int,
+        network: NetworkSnapshot
+    ) {
+        fillAppleWatchCard(ctx, x: x, y: y, w: w, h: h)
+        Draw.text(
+            ctx, "网络", x: x + 18, y: y + 16,
+            font: Fonts.system(17, weight: .bold), color: Color.purple)
+        Draw.text(
+            ctx, "↓ 下载", x: x + 18, y: y + 64,
+            font: Fonts.system(16, weight: .semibold), color: Color.green)
+        drawRightAligned(
+            ctx, formatRate(network.rxBytesPerSec), rightX: x + w - 18,
+            y: y + 54, font: Fonts.system(30, weight: .bold), color: Color.textW)
+        Draw.text(
+            ctx, "↑ 上传", x: x + 18, y: y + 130,
+            font: Fonts.system(16, weight: .semibold), color: Color.orange)
+        drawRightAligned(
+            ctx, formatRate(network.txBytesPerSec), rightX: x + w - 18,
+            y: y + 120, font: Fonts.system(30, weight: .bold), color: Color.textW)
+    }
+
+    private func drawAppleWatchClockCard(
+        _ ctx: CGContext, x: Int, y: Int, w: Int, h: Int
+    ) {
+        fillAppleWatchCard(ctx, x: x, y: y, w: w, h: h)
+        Draw.text(
+            ctx, "时间", x: x + 18, y: y + 16,
+            font: Fonts.system(17, weight: .bold), color: Color.green)
+        let formatter = DateFormatter()
+        formatter.dateFormat = "HH:mm"
+        Draw.centeredText(
+            ctx, formatter.string(from: Date()), cx: x + w / 2, y: y + 67,
+            font: Fonts.system(43, weight: .semibold), color: Color.textW)
+        Draw.centeredText(
+            ctx, "LCD 已连接", cx: x + w / 2, y: y + 151,
+            font: Fonts.system(14, weight: .semibold), color: Color.green)
+    }
+
+    private func formatRate(_ bytesPerSecond: Double) -> String {
+        if bytesPerSecond >= 1_048_576 {
+            return String(format: "%.1f", bytesPerSecond / 1_048_576)
+        }
+        return String(format: "%.1f", bytesPerSecond / 1024)
     }
 
     private func renderAppleWatchSystem(
