@@ -172,6 +172,17 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
             }
 
+            Section("京东联盟") {
+                TextField("统计接口地址", text: $state.jdStatsURL)
+                SecureField("访问令牌", text: $state.jdStatsToken)
+                Button("保存并刷新京东数据") {
+                    state.applySettings()
+                }
+                Text("显示今日、本周、本月和本年的成单量、销售额及佣金。京东密钥只保留在服务器。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             Section("亮度") {
                 HStack {
                     Slider(value: brightnessBinding, in: 1...10, step: 1) {
