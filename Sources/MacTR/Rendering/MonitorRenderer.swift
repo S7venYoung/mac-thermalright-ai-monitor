@@ -787,8 +787,14 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
         case .calendar:
             let now = Date()
             let calendar = Calendar.current
-            let event = calendarSnapshot.events.first {
+            let upcoming = calendarSnapshot.events.filter {
                 $0.date >= calendar.startOfDay(for: now)
+            }
+            func eventLabel(_ event: CalendarEvent?) -> String {
+                guard let event else { return "暂无近期日程" }
+                let values = calendar.dateComponents(
+                    [.month, .day], from: event.date)
+                return "\(values.month ?? 0)/\(values.day ?? 0) \(event.title)"
             }
             let formatter = DateFormatter()
             formatter.locale = Locale(identifier: "zh_CN")
@@ -805,9 +811,9 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
                         return f.string(from: now)
                     }()),
                     ("日程", "\(calendarSnapshot.events.count) 项"),
-                    ("订阅", calendarSnapshot.subscriptionConfigured ? "已启用" : "未配置"),
+                    ("订阅日历", eventLabel(upcoming.first)),
                 ],
-                footer: event?.title ?? "暂无近期日程")
+                footer: eventLabel(upcoming.dropFirst().first))
         case .jdAlliance:
             return AppleWatchModuleSummary(
                 title: "京东联盟", accent: Color.orange,
