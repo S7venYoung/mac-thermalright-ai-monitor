@@ -66,6 +66,10 @@ final class JDStatsCollector: @unchecked Sendable {
     private var cachedSnapshot = JDStatsSnapshot.unavailable
     private var cachedAt = Date.distantPast
 
+    func invalidate() {
+        cachedAt = .distantPast
+    }
+
     func collect(urlString rawURL: String, token rawToken: String)
         -> JDStatsSnapshot {
         let urlString = rawURL.trimmingCharacters(in: .whitespacesAndNewlines)
