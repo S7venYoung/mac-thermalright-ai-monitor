@@ -1260,12 +1260,12 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
         let todayTokens = max(stats.todayTokens, liveUsage.todayTotalTokens)
         Draw.text(
             ctx, "今日 Token", x: x, y: py + 55,
-            font: Fonts.system(17, weight: .medium), color: Color.textL)
+            font: Fonts.system(18, weight: .medium), color: Color.textL)
         Draw.text(
             ctx, formatTokensCN(todayTokens), x: x, y: py + 79,
-            font: Fonts.system(43, weight: .bold), color: Color.textW)
+            font: Fonts.system(48, weight: .bold), color: Color.textW)
 
-        let ioFont = Fonts.system(16, weight: .semibold)
+        let ioFont = Fonts.system(17, weight: .semibold)
         let ioRows: [(String, UInt64)] = [
             ("In", liveUsage.todayInputTokens),
             ("Out", liveUsage.todayOutputTokens),
@@ -1305,10 +1305,10 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
             let centerX = x + index * cardW + cardW / 2
             Draw.centeredText(
                 ctx, card.0, cx: centerX, y: py + 196,
-                font: Fonts.system(22, weight: .semibold), color: Color.textW)
+                font: Fonts.system(25, weight: .semibold), color: Color.textW)
             Draw.centeredText(
                 ctx, card.1, cx: centerX, y: py + 226,
-                font: Fonts.system(14), color: Color.textL)
+                font: Fonts.system(15), color: Color.textL)
             if index > 0 {
                 Draw.line(
                     ctx,
@@ -1322,15 +1322,15 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
             ctx, from: CGPoint(x: x, y: py + 254),
             to: CGPoint(x: x + w, y: py + 254), color: Color.border)
         Draw.text(
-            ctx, "TOKEN 活动 · 近 24 周", x: x, y: py + 270,
-            font: Fonts.system(15, weight: .semibold), color: Color.textL)
+            ctx, "TOKEN 活动 · 近 18 周", x: x, y: py + 272,
+            font: Fonts.system(16, weight: .semibold), color: Color.textL)
         drawRightAligned(
             ctx,
             stats.resetCreditsAvailable.map { "可重置 \($0) 次" } ?? "可重置 --",
-            rightX: x + w, y: py + 270,
-            font: Fonts.system(14), color: Color.orange)
+            rightX: x + w, y: py + 273,
+            font: Fonts.system(15, weight: .semibold), color: Color.orange)
         renderCodexHeatmap(
-            ctx, x: x, y: py + 302, w: w,
+            ctx, x: x, y: py + 307, w: w,
             dailyTokens: stats.dailyTokens, todayTokens: todayTokens)
     }
 
@@ -1388,10 +1388,10 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
         _ ctx: CGContext, x: Int, y: Int, w: Int,
         dailyTokens: [String: UInt64], todayTokens: UInt64
     ) {
-        let columns = 24
+        let columns = 18
         let rows = 7
         let gap = 3
-        let cell = min(11, (w - gap * (columns - 1)) / columns)
+        let cell = min(15, (w - gap * (columns - 1)) / columns)
         let gridWidth = columns * cell + (columns - 1) * gap
         let startX = x + max(0, (w - gridWidth) / 2)
         let calendar = Calendar.current
