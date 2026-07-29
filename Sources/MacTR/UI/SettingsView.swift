@@ -82,12 +82,13 @@ struct SettingsView: View {
                     state.applySettings()
                 }
 
-                Text("Apple Watch 主题会继续使用下方三个栏位的固定与轮播设置。")
+                Text("不同主题使用各自独立的模块布局设置。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
 
-            Section("中间模块") {
+            if state.displayTheme == .classic {
+                Section("中间模块") {
                 Picker("左侧", selection: $state.middleLeft) {
                     ForEach(MiddleSlot.allCases) { slot in
                         Text(slot.displayName).tag(slot)
@@ -152,6 +153,54 @@ struct SettingsView: View {
                 Text("每一栏可以独立固定或自动轮播。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                }
+            } else {
+                Section("Apple Watch 模块") {
+                    ForEach(AppleWatchPosition.allCases) { position in
+                        let index = position.rawValue
+                        Picker(
+                            position.displayName,
+                            selection: appleWatchModuleBinding(index)
+                        ) {
+                            ForEach(AppleWatchModule.allCases) { module in
+                                Text(module.displayName).tag(module)
+                            }
+                        }
+                        .onChange(of: state.appleWatchModules[index]) {
+                            state.applySettings()
+                        }
+
+                        Toggle(
+                            "\(position.displayName)自动轮播",
+                            isOn: appleWatchCarouselBinding(index))
+                            .onChange(of: state.appleWatchCarousels[index]) {
+                                state.applySettings()
+                            }
+
+                        appleWatchMultiPicker(
+                            "\(position.displayName)轮播内容",
+                            selection: appleWatchRotationBinding(index))
+                            .disabled(!state.appleWatchCarousels[index])
+
+                        if position != .bottomRight {
+                            Divider()
+                        }
+                    }
+
+                    Picker("轮播间隔", selection: $state.middleCarouselInterval) {
+                        Text("10 秒").tag(10.0)
+                        Text("15 秒").tag(15.0)
+                        Text("30 秒").tag(30.0)
+                        Text("60 秒").tag(60.0)
+                    }
+                    .onChange(of: state.middleCarouselInterval) {
+                        state.applySettings()
+                    }
+
+                    Text("六个位置分别保存固定模块与轮播内容，System 圆环保持固定。")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
 
             Section("日历") {
@@ -284,6 +333,61 @@ struct SettingsView: View {
             .filter(modules.contains)
             .map(\.displayName)
             .joined(separator: "、")
+    }
+
+    private func appleWatchModuleBinding(
+        _ index: Int
+    ) -> Binding<AppleWatchModule> {
+        Binding(
+            get: { state.appleWatchModules[index] },
+            set: { state.appleWatchModules[index] = $0 })
+    }
+
+    private func appleWatchCarouselBinding(_ index: Int) -> Binding<Bool> {
+        Binding(
+            get: { state.appleWatchCarousels[index] },
+            set: { state.appleWatchCarousels[index] = $0 })
+    }
+
+    private func appleWatchRotationBinding(
+        _ index: Int
+    ) -> Binding<Set<AppleWatchModule>> {
+        Binding(
+            get: { state.appleWatchRotations[index] },
+            set: { state.appleWatchRotations[index] = $0 })
+    }
+
+    private func appleWatchMultiPicker(
+        _ title: String, selection: Binding<Set<AppleWatchModule>>
+    ) -> some View {
+        Menu {
+            ForEach(AppleWatchModule.allCases) { module in
+                Toggle(
+                    module.displayName,
+                    isOn: Binding(
+                        get: { selection.wrappedValue.contains(module) },
+                        set: { enabled in
+                            var updated = selection.wrappedValue
+                            if enabled {
+                                updated.insert(module)
+                            } else if updated.count > 1 {
+                                updated.remove(module)
+                            }
+                            selection.wrappedValue = updated
+                            state.applySettings()
+                        }))
+            }
+        } label: {
+            LabeledContent(title) {
+                Text(
+                    AppleWatchModule.allCases
+                        .filter(selection.wrappedValue.contains)
+                        .map(\.displayName)
+                        .joined(separator: "、"))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+        }
     }
 
     private var deviceSettings: some View {
