@@ -15,6 +15,7 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
     private let keyStatsCollector = KeyStatsCollector()
     private let weatherCollector = WeatherCollector()
     private let calendarCollector = CalendarCollector()
+    private let jdStatsCollector = JDStatsCollector()
 
     // Background metrics collection — decoupled from frame loop for consistent refresh
     private let metricsQueue = DispatchQueue(label: "com.thermalvision.metrics")
@@ -33,8 +34,10 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
     private var _keyStats: KeyStatsSnapshot?
     private var _weather: WeatherSnapshot?
     private var _calendar: CalendarSnapshot = .empty
+    private var _jdStats: JDStatsSnapshot = .unavailable
     private var weatherRefreshRequested = true
     private var calendarRefreshRequested = true
+    private var jdStatsRefreshRequested = true
 
     // User-selected fixed middle panel
     private let panelLock = NSLock()
@@ -55,6 +58,8 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
     private var weatherLongitude = 121.4737
     private var weatherLatitude = 31.2304
     private var calendarSubscriptionURL = ""
+    private var jdStatsURL = ""
+    private var jdStatsToken = ""
 
     // Reusable CGContext — avoids allocating 3.6MB every 0.5s (prevents CG raster data leak)
     private var reusableCtx: CGContext?
@@ -175,6 +180,17 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
         lock.unlock()
     }
 
+    func setJDStatsConfig(urlString: String, token: String) {
+        panelLock.lock()
+        jdStatsURL = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
+        jdStatsToken = token.trimmingCharacters(in: .whitespacesAndNewlines)
+        panelLock.unlock()
+        lock.lock()
+        _jdStats = .unavailable
+        jdStatsRefreshRequested = true
+        lock.unlock()
+    }
+
     private func selectedMiddleSlots() -> (MiddleSlot, MiddleSlot, MiddleSlot) {
         panelLock.lock()
         defer { panelLock.unlock() }
@@ -214,6 +230,12 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
             weatherCity, caiyunToken, weatherLongitude, weatherLatitude)
     }
 
+    private func selectedJDStatsConfig() -> (url: String, token: String) {
+        panelLock.lock()
+        defer { panelLock.unlock() }
+        return (jdStatsURL, jdStatsToken)
+    }
+
     private func isWeatherVisible() -> Bool {
         let slots = selectedMiddleSlots()
         return slots.0 == .weather
@@ -243,6 +265,7 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
         var slowTick = 0
         var weatherTick = 1200
         var calendarTick = 7200
+        var jdStatsTick = 600
         while metricsRunning {
             // Fast metrics every tick
             let cpu = collector.collectCPU()
@@ -302,6 +325,25 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
                 calendarRefreshRequested = false
                 lock.unlock()
                 calendarTick = 0
+            }
+
+            jdStatsTick += 1
+            lock.lock()
+            let refreshJDStats = jdStatsRefreshRequested
+            lock.unlock()
+            let jdStatsVisible = visibleSlots.0 == .jdAlliance
+                || visibleSlots.1 == .jdAlliance
+                || visibleSlots.2 == .jdAlliance
+            if jdStatsVisible,
+               jdStatsTick >= 600 || refreshJDStats {
+                let config = selectedJDStatsConfig()
+                let snapshot = jdStatsCollector.collect(
+                    urlString: config.url, token: config.token)
+                lock.lock()
+                _jdStats = snapshot
+                jdStatsRefreshRequested = false
+                lock.unlock()
+                jdStatsTick = 0
             }
 
             Thread.sleep(forTimeInterval: 0.5)
@@ -401,7 +443,7 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
                           right: slots.2, agents: agents,
                           disk: disk, diskIO: diskIO, network: network,
                           tokenUsage: tokenUsage, keyStats: .demo,
-                          weather: .unavailable)
+                          weather: .unavailable, jdStats: .unavailable)
         renderMemory(ctx, mem: mem, sys: sys, agentsBusy: true)
         return ctx.makeImage()
     }
@@ -423,11 +465,13 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
         let keyStats: KeyStatsSnapshot
         let weather: WeatherSnapshot
         let calendarSnapshot: CalendarSnapshot
+        let jdStats: JDStatsSnapshot
         if demoMode {
             (cpu, mem, temp, sys, agents, disk, diskIO, network, tokenUsage) = demoData()
             keyStats = .demo
             weather = .unavailable
             calendarSnapshot = .empty
+            jdStats = .unavailable
         } else {
             // Read cached metrics (never blocks — uses latest available values)
             lock.lock()
@@ -445,6 +489,7 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
             keyStats = _keyStats ?? .unavailable
             weather = _weather ?? .unavailable
             calendarSnapshot = _calendar
+            jdStats = _jdStats
             lock.unlock()
         }
 
@@ -489,7 +534,8 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
                           right: slots.2, agents: agents,
                           disk: disk, diskIO: diskIO, network: network,
                           tokenUsage: tokenUsage, keyStats: keyStats,
-                          weather: weather, calendarSnapshot: calendarSnapshot)
+                          weather: weather, calendarSnapshot: calendarSnapshot,
+                          jdStats: jdStats)
 
         renderMemory(ctx, mem: mem, sys: sys, agentsBusy: agentsBusy)
 
@@ -1107,7 +1153,8 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
                                    tokenUsage: TokenUsageSnapshot,
                                    keyStats: KeyStatsSnapshot,
                                    weather: WeatherSnapshot,
-                                   calendarSnapshot: CalendarSnapshot = .empty) {
+                                   calendarSnapshot: CalendarSnapshot = .empty,
+                                   jdStats: JDStatsSnapshot = .unavailable) {
         let py = Layout.panelY
         let ph = Layout.panelHeight
 
@@ -1120,7 +1167,8 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
                 ctx, slot: slot, x: panelX + 20, w: Layout.panelWidth - 40,
                 py: py, ph: ph, agents: agents, disk: disk, diskIO: diskIO,
                 network: network, tokenUsage: tokenUsage, keyStats: keyStats,
-                weather: weather, calendarSnapshot: calendarSnapshot)
+                weather: weather, calendarSnapshot: calendarSnapshot,
+                jdStats: jdStats)
         }
     }
 
@@ -1128,6 +1176,8 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
         switch slot {
         case .codex, .disk, .keyStats, .weather, .calendar:
             return Color.cyan
+        case .jdAlliance:
+            return Color.orange
         case .claude:
             return Color.claude
         case .network:
@@ -1142,7 +1192,8 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
                                   tokenUsage: TokenUsageSnapshot,
                                   keyStats: KeyStatsSnapshot,
                                   weather: WeatherSnapshot,
-                                  calendarSnapshot: CalendarSnapshot) {
+                                  calendarSnapshot: CalendarSnapshot,
+                                  jdStats: JDStatsSnapshot) {
         switch slot {
         case .codex:
             renderAgentColumn(ctx, x: x, w: w, py: py,
@@ -1168,7 +1219,79 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
             renderCalendarColumn(
                 ctx, x: x, w: w, py: py, ph: ph,
                 snapshot: calendarSnapshot)
+        case .jdAlliance:
+            renderJDAllianceColumn(
+                ctx, x: x, w: w, py: py, ph: ph, stats: jdStats)
         }
+    }
+
+    private func renderJDAllianceColumn(
+        _ ctx: CGContext, x: Int, w: Int, py: Int, ph: Int,
+        stats: JDStatsSnapshot
+    ) {
+        Draw.text(ctx, "JD ALLIANCE", x: x, y: py + 14,
+                  font: Fonts.system(24, weight: .bold), color: Color.orange)
+
+        guard stats.available else {
+            Draw.centeredText(
+                ctx, stats.errorMessage,
+                cx: x + w / 2, y: py + ph / 2 - 10,
+                font: Fonts.system(17), color: Color.textD)
+            return
+        }
+
+        let periods: [(String, JDPeriodStats)] = [
+            ("今日", stats.day),
+            ("本周", stats.week),
+            ("本月", stats.month),
+            ("本年", stats.year),
+        ]
+        let labelFont = Fonts.system(17, weight: .semibold)
+        let valueFont = Fonts.system(20, weight: .bold)
+        let startY = py + 75
+        let rowH = 91
+        for (index, item) in periods.enumerated() {
+            let y = startY + index * rowH
+            Draw.text(
+                ctx, item.0, x: x, y: y,
+                font: labelFont, color: index == 0 ? Color.orange : Color.textL)
+            let orderText = "\(item.1.orders) 单"
+            let orderWidth = (orderText as NSString).size(
+                withAttributes: [.font: valueFont]).width
+            Draw.text(
+                ctx, orderText,
+                x: Int(CGFloat(x + w) - orderWidth), y: y - 2,
+                font: valueFont, color: Color.textW)
+
+            Draw.text(
+                ctx, "销售 \(formatJDMoney(item.1.estimatedSales))",
+                x: x, y: y + 31, font: Fonts.system(16), color: Color.cyan)
+            let feeText = "佣金 \(formatJDMoney(item.1.estimatedCommission))"
+            let feeFont = Fonts.system(16, weight: .semibold)
+            let feeWidth = (feeText as NSString).size(
+                withAttributes: [.font: feeFont]).width
+            Draw.text(
+                ctx, feeText,
+                x: Int(CGFloat(x + w) - feeWidth), y: y + 31,
+                font: feeFont, color: Color.green)
+            if index < periods.count - 1 {
+                Draw.line(
+                    ctx, from: CGPoint(x: x, y: y + 66),
+                    to: CGPoint(x: x + w, y: y + 66), color: Color.border)
+            }
+        }
+
+        Draw.text(
+            ctx, "结算后自动更新实际金额",
+            x: x, y: py + ph - 31,
+            font: Fonts.system(14), color: Color.textD)
+    }
+
+    private func formatJDMoney(_ value: Double) -> String {
+        if abs(value) >= 10_000 {
+            return String(format: "¥%.1f万", value / 10_000)
+        }
+        return String(format: "¥%.2f", value)
     }
 
     private func renderCalendarColumn(
