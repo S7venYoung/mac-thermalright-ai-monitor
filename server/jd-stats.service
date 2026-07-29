@@ -1,0 +1,15 @@
+[Unit]
+Description=JD Union statistics collector and API
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/opc/JDBot
+EnvironmentFile=/home/opc/JDBot/.env
+ExecStart=/usr/bin/python3.9 /home/opc/JDBot/jd_stats_service.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=default.target
