@@ -93,9 +93,8 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
         metricsRunning = true
         lock.unlock()
         log("[Metrics] Starting collection...")
-        // KeyStats is a background accumulator. Keep it running for the whole
-        // app session so opening its panel later shows the complete day rather
-        // than only activity recorded while the panel was visible.
+        // keyStats owns event monitoring. MacTR only reads its persisted
+        // aggregate counters, avoiding duplicate global event taps.
         keyStatsCollector.start(requestPermission: true)
         // First pass: prime CPU ticks (deltas will be zero)
         let cpu0 = collector.collectCPU()
@@ -1500,10 +1499,10 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
                   font: Fonts.system(24, weight: .bold), color: Color.cyan)
 
         guard stats.available else {
-            Draw.centeredText(ctx, "Allow MacTR Input Monitoring",
+            Draw.centeredText(ctx, "请先运行 keyStats",
                               cx: x + w / 2, y: py + ph / 2 - 16,
                               font: Fonts.system(20), color: Color.textD)
-            Draw.centeredText(ctx, "Then restart MacTR",
+            Draw.centeredText(ctx, "MacTR 将自动读取今日统计",
                               cx: x + w / 2, y: py + ph / 2 + 18,
                               font: Fonts.system(16), color: Color.textL)
             return
