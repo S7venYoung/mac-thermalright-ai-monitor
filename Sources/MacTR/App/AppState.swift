@@ -28,6 +28,7 @@ enum MiddleSlot: String, CaseIterable, Identifiable, Sendable {
     case network = "Network"
     case weather = "Weather"
     case keyStats = "KeyStats"
+    case calendar = "Calendar"
 
     var id: String { rawValue }
 
@@ -39,6 +40,7 @@ enum MiddleSlot: String, CaseIterable, Identifiable, Sendable {
         case .network: "网络"
         case .weather: "天气"
         case .keyStats: "键鼠统计"
+        case .calendar: "日历"
         }
     }
 }
@@ -85,6 +87,17 @@ final class AppState {
     var middleRight: MiddleSlot =
         MiddleSlot(rawValue: UserDefaults.standard.string(
             forKey: "middleRightSlot") ?? "") ?? .network
+    var middleLeftCarousel =
+        UserDefaults.standard.bool(forKey: "middleLeftCarousel")
+    var middleCenterCarousel =
+        UserDefaults.standard.bool(forKey: "middleCenterCarousel")
+    var middleRightCarousel =
+        UserDefaults.standard.bool(forKey: "middleRightCarousel")
+    var middleCarouselInterval =
+        UserDefaults.standard.object(forKey: "middleCarouselInterval") as? Double
+            ?? 15
+    var calendarSubscriptionURL =
+        UserDefaults.standard.string(forKey: "calendarSubscriptionURL") ?? ""
 
     // Metrics (for menu bar display)
     var frameCount = 0
@@ -120,6 +133,10 @@ final class AppState {
         engine = eng
         eng.start(set: currentSet, middleLeft: middleLeft,
                   middleCenter: middleCenter, middleRight: middleRight,
+                  middleLeftCarousel: middleLeftCarousel,
+                  middleCenterCarousel: middleCenterCarousel,
+                  middleRightCarousel: middleRightCarousel,
+                  middleCarouselInterval: middleCarouselInterval,
                   brightness: brightness,
                   interval: refreshInterval, rotate: rotateDisplay,
                   screenScheduleEnabled: screenScheduleEnabled,
@@ -127,7 +144,8 @@ final class AppState {
                   screenOnMinutes: screenOnMinutes,
                   weatherCity: weatherCity, caiyunToken: caiyunToken,
                   weatherLongitude: weatherLongitude,
-                  weatherLatitude: weatherLatitude)
+                  weatherLatitude: weatherLatitude,
+                  calendarSubscriptionURL: calendarSubscriptionURL)
     }
 
     func stop() {
@@ -155,6 +173,15 @@ final class AppState {
         UserDefaults.standard.set(middleLeft.rawValue, forKey: "middleLeftSlot")
         UserDefaults.standard.set(middleCenter.rawValue, forKey: "middleCenterSlot")
         UserDefaults.standard.set(middleRight.rawValue, forKey: "middleRightSlot")
+        UserDefaults.standard.set(middleLeftCarousel, forKey: "middleLeftCarousel")
+        UserDefaults.standard.set(
+            middleCenterCarousel, forKey: "middleCenterCarousel")
+        UserDefaults.standard.set(
+            middleRightCarousel, forKey: "middleRightCarousel")
+        UserDefaults.standard.set(
+            middleCarouselInterval, forKey: "middleCarouselInterval")
+        UserDefaults.standard.set(
+            calendarSubscriptionURL, forKey: "calendarSubscriptionURL")
         UserDefaults.standard.set(
             screenScheduleEnabled, forKey: "screenScheduleEnabled")
         UserDefaults.standard.set(screenOffMinutes, forKey: "screenOffMinutes")
@@ -166,6 +193,10 @@ final class AppState {
         UserDefaults.standard.set(weatherLatitude, forKey: "weatherLatitude")
         engine?.updateSettings(set: currentSet, middleLeft: middleLeft,
                                middleCenter: middleCenter, middleRight: middleRight,
+                               middleLeftCarousel: middleLeftCarousel,
+                               middleCenterCarousel: middleCenterCarousel,
+                               middleRightCarousel: middleRightCarousel,
+                               middleCarouselInterval: middleCarouselInterval,
                                brightness: brightness, interval: refreshInterval,
                                rotate: rotateDisplay,
                                screenScheduleEnabled: screenScheduleEnabled,
@@ -174,7 +205,8 @@ final class AppState {
                                weatherCity: weatherCity,
                                caiyunToken: caiyunToken,
                                weatherLongitude: weatherLongitude,
-                               weatherLatitude: weatherLatitude)
+                               weatherLatitude: weatherLatitude,
+                               calendarSubscriptionURL: calendarSubscriptionURL)
     }
 
     /// Latest rendered frame for the on-Mac preview window
@@ -213,6 +245,10 @@ final class DisplayEngine: @unchecked Sendable {
     private var middleLeft: MiddleSlot = .codex
     private var middleCenter: MiddleSlot = .disk
     private var middleRight: MiddleSlot = .network
+    private var middleLeftCarousel = false
+    private var middleCenterCarousel = false
+    private var middleRightCarousel = false
+    private var middleCarouselInterval: Double = 15
     private var brightness: Int = 5
     private var interval: Double = 0.5
     private var rotateDisplay: Bool = false
@@ -223,6 +259,7 @@ final class DisplayEngine: @unchecked Sendable {
     private var caiyunToken = ""
     private var weatherLongitude = 121.4737
     private var weatherLatitude = 31.2304
+    private var calendarSubscriptionURL = ""
 
     // Renderers
     private let monitorRenderer = MonitorRenderer()
@@ -233,16 +270,25 @@ final class DisplayEngine: @unchecked Sendable {
 
     func start(set: DisplaySet, middleLeft: MiddleSlot,
                middleCenter: MiddleSlot, middleRight: MiddleSlot,
+               middleLeftCarousel: Bool,
+               middleCenterCarousel: Bool,
+               middleRightCarousel: Bool,
+               middleCarouselInterval: Double,
                brightness: Int, interval: Double, rotate: Bool,
                screenScheduleEnabled: Bool, screenOffMinutes: Int,
                screenOnMinutes: Int, weatherCity: String,
                caiyunToken: String, weatherLongitude: Double,
-               weatherLatitude: Double) {
+               weatherLatitude: Double,
+               calendarSubscriptionURL: String) {
         appActive = true
         self.currentSet = set
         self.middleLeft = middleLeft
         self.middleCenter = middleCenter
         self.middleRight = middleRight
+        self.middleLeftCarousel = middleLeftCarousel
+        self.middleCenterCarousel = middleCenterCarousel
+        self.middleRightCarousel = middleRightCarousel
+        self.middleCarouselInterval = middleCarouselInterval
         self.brightness = brightness
         self.interval = interval
         self.rotateDisplay = rotate
@@ -253,11 +299,18 @@ final class DisplayEngine: @unchecked Sendable {
         self.caiyunToken = caiyunToken
         self.weatherLongitude = weatherLongitude
         self.weatherLatitude = weatherLatitude
+        self.calendarSubscriptionURL = calendarSubscriptionURL
         monitorRenderer.setMiddleSlots(
-            left: middleLeft, center: middleCenter, right: middleRight)
+            left: middleLeft, center: middleCenter, right: middleRight,
+            leftCarousel: middleLeftCarousel,
+            centerCarousel: middleCenterCarousel,
+            rightCarousel: middleRightCarousel,
+            carouselInterval: middleCarouselInterval)
         monitorRenderer.setWeatherConfig(
             city: weatherCity, token: caiyunToken,
             longitude: weatherLongitude, latitude: weatherLatitude)
+        monitorRenderer.setCalendarSubscription(
+            urlString: calendarSubscriptionURL)
 
         usbQueue.async { [weak self] in
             guard let self else { return }
@@ -294,17 +347,26 @@ final class DisplayEngine: @unchecked Sendable {
 
     func updateSettings(set: DisplaySet, middleLeft: MiddleSlot,
                         middleCenter: MiddleSlot, middleRight: MiddleSlot,
+                        middleLeftCarousel: Bool,
+                        middleCenterCarousel: Bool,
+                        middleRightCarousel: Bool,
+                        middleCarouselInterval: Double,
                         brightness: Int,
                         interval: Double, rotate: Bool,
                         screenScheduleEnabled: Bool, screenOffMinutes: Int,
                         screenOnMinutes: Int, weatherCity: String,
                         caiyunToken: String, weatherLongitude: Double,
-                        weatherLatitude: Double) {
+                        weatherLatitude: Double,
+                        calendarSubscriptionURL: String) {
         log("[Engine] Settings updated: set=\(set.rawValue), middle=\(middleLeft.rawValue)+\(middleCenter.rawValue)+\(middleRight.rawValue), brightness=\(brightness), interval=\(interval), rotate=\(rotate)")
         self.currentSet = set
         self.middleLeft = middleLeft
         self.middleCenter = middleCenter
         self.middleRight = middleRight
+        self.middleLeftCarousel = middleLeftCarousel
+        self.middleCenterCarousel = middleCenterCarousel
+        self.middleRightCarousel = middleRightCarousel
+        self.middleCarouselInterval = middleCarouselInterval
         self.brightness = brightness
         self.interval = interval
         self.rotateDisplay = rotate
@@ -315,11 +377,18 @@ final class DisplayEngine: @unchecked Sendable {
         self.caiyunToken = caiyunToken
         self.weatherLongitude = weatherLongitude
         self.weatherLatitude = weatherLatitude
+        self.calendarSubscriptionURL = calendarSubscriptionURL
         monitorRenderer.setMiddleSlots(
-            left: middleLeft, center: middleCenter, right: middleRight)
+            left: middleLeft, center: middleCenter, right: middleRight,
+            leftCarousel: middleLeftCarousel,
+            centerCarousel: middleCenterCarousel,
+            rightCarousel: middleRightCarousel,
+            carouselInterval: middleCarouselInterval)
         monitorRenderer.setWeatherConfig(
             city: weatherCity, token: caiyunToken,
             longitude: weatherLongitude, latitude: weatherLatitude)
+        monitorRenderer.setCalendarSubscription(
+            urlString: calendarSubscriptionURL)
 
         usbQueue.async { [weak self] in
             guard let self, self.appActive, !self.running,

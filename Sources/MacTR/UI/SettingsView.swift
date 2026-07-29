@@ -83,6 +83,10 @@ struct SettingsView: View {
                 .onChange(of: state.middleLeft) {
                     state.applySettings()
                 }
+                Toggle("左侧自动轮播", isOn: $state.middleLeftCarousel)
+                    .onChange(of: state.middleLeftCarousel) {
+                        state.applySettings()
+                    }
 
                 Picker("中间", selection: $state.middleCenter) {
                     ForEach(MiddleSlot.allCases) { slot in
@@ -92,6 +96,10 @@ struct SettingsView: View {
                 .onChange(of: state.middleCenter) {
                     state.applySettings()
                 }
+                Toggle("中间自动轮播", isOn: $state.middleCenterCarousel)
+                    .onChange(of: state.middleCenterCarousel) {
+                        state.applySettings()
+                    }
 
                 Picker("右侧", selection: $state.middleRight) {
                     ForEach(MiddleSlot.allCases) { slot in
@@ -101,8 +109,38 @@ struct SettingsView: View {
                 .onChange(of: state.middleRight) {
                     state.applySettings()
                 }
+                Toggle("右侧自动轮播", isOn: $state.middleRightCarousel)
+                    .onChange(of: state.middleRightCarousel) {
+                        state.applySettings()
+                    }
 
-                Text("三个模块保持固定，可自由组合。")
+                Picker("轮播间隔", selection: $state.middleCarouselInterval) {
+                    Text("10 秒").tag(10.0)
+                    Text("15 秒").tag(15.0)
+                    Text("30 秒").tag(30.0)
+                    Text("60 秒").tag(60.0)
+                }
+                .disabled(
+                    !state.middleLeftCarousel
+                        && !state.middleCenterCarousel
+                        && !state.middleRightCarousel)
+                .onChange(of: state.middleCarouselInterval) {
+                    state.applySettings()
+                }
+
+                Text("每一栏可以独立固定或自动轮播。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Section("日历") {
+                TextField(
+                    "节假日订阅地址（.ics）",
+                    text: $state.calendarSubscriptionURL)
+                Button("保存并刷新日历") {
+                    state.applySettings()
+                }
+                Text("支持标准 iCalendar 订阅，显示本月标记和近期节假日。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

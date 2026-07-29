@@ -14,6 +14,7 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
     private let agentCollector = AgentUsageCollector()
     private let keyStatsCollector = KeyStatsCollector()
     private let weatherCollector = WeatherCollector()
+    private let calendarCollector = CalendarCollector()
 
     // Background metrics collection — decoupled from frame loop for consistent refresh
     private let metricsQueue = DispatchQueue(label: "com.thermalvision.metrics")
@@ -31,17 +32,24 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
     private var _network: NetworkSnapshot?
     private var _keyStats: KeyStatsSnapshot?
     private var _weather: WeatherSnapshot?
+    private var _calendar: CalendarSnapshot = .empty
     private var weatherRefreshRequested = true
+    private var calendarRefreshRequested = true
 
     // User-selected fixed middle panel
     private let panelLock = NSLock()
     private var middleLeft: MiddleSlot = .codex
     private var middleCenter: MiddleSlot = .disk
     private var middleRight: MiddleSlot = .network
+    private var middleLeftCarousel = false
+    private var middleCenterCarousel = false
+    private var middleRightCarousel = false
+    private var middleCarouselInterval: Double = 15
     private var weatherCity = "上海"
     private var caiyunToken = ""
     private var weatherLongitude = 121.4737
     private var weatherLatitude = 31.2304
+    private var calendarSubscriptionURL = ""
 
     // Reusable CGContext — avoids allocating 3.6MB every 0.5s (prevents CG raster data leak)
     private var reusableCtx: CGContext?
@@ -113,11 +121,19 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
         keyStatsCollector.stop()
     }
 
-    func setMiddleSlots(left: MiddleSlot, center: MiddleSlot, right: MiddleSlot) {
+    func setMiddleSlots(
+        left: MiddleSlot, center: MiddleSlot, right: MiddleSlot,
+        leftCarousel: Bool = false, centerCarousel: Bool = false,
+        rightCarousel: Bool = false, carouselInterval: Double = 15
+    ) {
         panelLock.lock()
         middleLeft = left
         middleCenter = center
         middleRight = right
+        middleLeftCarousel = leftCarousel
+        middleCenterCarousel = centerCarousel
+        middleRightCarousel = rightCarousel
+        middleCarouselInterval = max(5, carouselInterval)
         panelLock.unlock()
     }
 
@@ -136,10 +152,39 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
         lock.unlock()
     }
 
+    func setCalendarSubscription(urlString: String) {
+        panelLock.lock()
+        calendarSubscriptionURL = urlString
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        panelLock.unlock()
+        lock.lock()
+        _calendar = .empty
+        calendarRefreshRequested = true
+        lock.unlock()
+    }
+
     private func selectedMiddleSlots() -> (MiddleSlot, MiddleSlot, MiddleSlot) {
         panelLock.lock()
         defer { panelLock.unlock() }
-        return (middleLeft, middleCenter, middleRight)
+        let modules: [MiddleSlot] = [
+            .codex, .disk, .network, .weather, .keyStats, .calendar,
+        ]
+        let step = Int(Date().timeIntervalSince1970 / middleCarouselInterval)
+        func slot(_ fixed: MiddleSlot, enabled: Bool, phase: Int) -> MiddleSlot {
+            guard enabled else { return fixed }
+            let base = modules.firstIndex(of: fixed) ?? phase
+            return modules[(base + step) % modules.count]
+        }
+        return (
+            slot(middleLeft, enabled: middleLeftCarousel, phase: 0),
+            slot(middleCenter, enabled: middleCenterCarousel, phase: 1),
+            slot(middleRight, enabled: middleRightCarousel, phase: 2))
+    }
+
+    private func selectedCalendarURL() -> String {
+        panelLock.lock()
+        defer { panelLock.unlock() }
+        return calendarSubscriptionURL
     }
 
     private func selectedWeatherConfig() -> (
@@ -179,6 +224,7 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
         log("[Metrics] Loop started on metricsQueue")
         var slowTick = 0
         var weatherTick = 1200
+        var calendarTick = 7200
         while metricsRunning {
             // Fast metrics every tick
             let cpu = collector.collectCPU()
@@ -219,6 +265,25 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
                 weatherRefreshRequested = false
                 lock.unlock()
                 weatherTick = 0
+            }
+
+            calendarTick += 1
+            lock.lock()
+            let refreshCalendar = calendarRefreshRequested
+            lock.unlock()
+            let visibleSlots = selectedMiddleSlots()
+            let calendarVisible = visibleSlots.0 == .calendar
+                || visibleSlots.1 == .calendar
+                || visibleSlots.2 == .calendar
+            if calendarVisible,
+               calendarTick >= 7200 || refreshCalendar {
+                let snapshot = calendarCollector.collect(
+                    urlString: selectedCalendarURL())
+                lock.lock()
+                _calendar = snapshot
+                calendarRefreshRequested = false
+                lock.unlock()
+                calendarTick = 0
             }
 
             Thread.sleep(forTimeInterval: 0.5)
@@ -339,10 +404,12 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
         let tokenUsage: TokenUsageSnapshot
         let keyStats: KeyStatsSnapshot
         let weather: WeatherSnapshot
+        let calendarSnapshot: CalendarSnapshot
         if demoMode {
             (cpu, mem, temp, sys, agents, disk, diskIO, network, tokenUsage) = demoData()
             keyStats = .demo
             weather = .unavailable
+            calendarSnapshot = .empty
         } else {
             // Read cached metrics (never blocks — uses latest available values)
             lock.lock()
@@ -359,6 +426,7 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
                 totalMessages: 0, totalCost: 0, processingTimeMs: 0)
             keyStats = _keyStats ?? .unavailable
             weather = _weather ?? .unavailable
+            calendarSnapshot = _calendar
             lock.unlock()
         }
 
@@ -403,7 +471,7 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
                           right: slots.2, agents: agents,
                           disk: disk, diskIO: diskIO, network: network,
                           tokenUsage: tokenUsage, keyStats: keyStats,
-                          weather: weather)
+                          weather: weather, calendarSnapshot: calendarSnapshot)
 
         renderMemory(ctx, mem: mem, sys: sys, agentsBusy: agentsBusy)
 
@@ -1020,7 +1088,8 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
                                    network: NetworkSnapshot,
                                    tokenUsage: TokenUsageSnapshot,
                                    keyStats: KeyStatsSnapshot,
-                                   weather: WeatherSnapshot) {
+                                   weather: WeatherSnapshot,
+                                   calendarSnapshot: CalendarSnapshot = .empty) {
         let py = Layout.panelY
         let ph = Layout.panelHeight
 
@@ -1033,13 +1102,13 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
                 ctx, slot: slot, x: panelX + 20, w: Layout.panelWidth - 40,
                 py: py, ph: ph, agents: agents, disk: disk, diskIO: diskIO,
                 network: network, tokenUsage: tokenUsage, keyStats: keyStats,
-                weather: weather)
+                weather: weather, calendarSnapshot: calendarSnapshot)
         }
     }
 
     private func middleSlotAccent(_ slot: MiddleSlot) -> CGColor {
         switch slot {
-        case .codex, .disk, .keyStats, .weather:
+        case .codex, .disk, .keyStats, .weather, .calendar:
             return Color.cyan
         case .claude:
             return Color.claude
@@ -1054,7 +1123,8 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
                                   diskIO: DiskIOSnapshot, network: NetworkSnapshot,
                                   tokenUsage: TokenUsageSnapshot,
                                   keyStats: KeyStatsSnapshot,
-                                  weather: WeatherSnapshot) {
+                                  weather: WeatherSnapshot,
+                                  calendarSnapshot: CalendarSnapshot) {
         switch slot {
         case .codex:
             renderAgentColumn(ctx, x: x, w: w, py: py,
@@ -1076,6 +1146,103 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
         case .keyStats:
             renderKeyStatsColumn(ctx, x: x, w: w, py: py, ph: ph,
                                  stats: keyStats)
+        case .calendar:
+            renderCalendarColumn(
+                ctx, x: x, w: w, py: py, ph: ph,
+                snapshot: calendarSnapshot)
+        }
+    }
+
+    private func renderCalendarColumn(
+        _ ctx: CGContext, x: Int, w: Int, py: Int, ph: Int,
+        snapshot: CalendarSnapshot
+    ) {
+        let calendar = Calendar.current
+        let now = Date()
+        let components = calendar.dateComponents(
+            [.year, .month, .day, .weekday], from: now)
+        let year = components.year ?? 0
+        let month = components.month ?? 0
+        let today = components.day ?? 0
+
+        Draw.text(ctx, "CALENDAR", x: x, y: py + 14,
+                  font: Fonts.system(24, weight: .bold), color: Color.cyan)
+        Draw.text(ctx, "\(year) 年 \(month) 月", x: x, y: py + 58,
+                  font: Fonts.system(31, weight: .bold), color: Color.textW)
+        Draw.text(ctx, "今天 · \(today) 日", x: x, y: py + 101,
+                  font: Fonts.system(18, weight: .medium), color: Color.green)
+
+        guard let monthStart = calendar.date(
+            from: DateComponents(year: year, month: month, day: 1)),
+              let dayRange = calendar.range(of: .day, in: .month, for: monthStart)
+        else { return }
+
+        let weekdays = ["日", "一", "二", "三", "四", "五", "六"]
+        let cellW = w / 7
+        let headerY = py + 143
+        for (column, label) in weekdays.enumerated() {
+            Draw.centeredText(
+                ctx, label, cx: x + column * cellW + cellW / 2, y: headerY,
+                font: Fonts.system(17, weight: .semibold),
+                color: column == 0 || column == 6 ? Color.orange : Color.textL)
+        }
+        Draw.line(
+            ctx, from: CGPoint(x: x, y: py + 173),
+            to: CGPoint(x: x + w, y: py + 173), color: Color.border)
+
+        let firstWeekday =
+            calendar.component(.weekday, from: monthStart) - 1
+        let eventDays = Set(snapshot.events.compactMap { event -> Int? in
+            let values = calendar.dateComponents([.year, .month, .day], from: event.date)
+            return values.year == year && values.month == month ? values.day : nil
+        })
+        let rowH = 34
+        for day in dayRange {
+            let index = firstWeekday + day - 1
+            let column = index % 7
+            let row = index / 7
+            let centerX = x + column * cellW + cellW / 2
+            let cellY = py + 184 + row * rowH
+
+            if day == today {
+                ctx.setFillColor(Color.cyanD)
+                ctx.fillEllipse(
+                    in: CGRect(
+                        x: centerX - 17, y: cellY - 4,
+                        width: 34, height: 34))
+            }
+            Draw.centeredText(
+                ctx, "\(day)", cx: centerX, y: cellY,
+                font: Fonts.system(
+                    19, weight: day == today ? .bold : .medium),
+                color: day == today
+                    ? Color.cyan
+                    : (column == 0 || column == 6 ? Color.orange : Color.textW))
+            if eventDays.contains(day) && day != today {
+                ctx.setFillColor(Color.green)
+                ctx.fillEllipse(
+                    in: CGRect(
+                        x: centerX - 2, y: cellY + 25,
+                        width: 4, height: 4))
+            }
+        }
+
+        let upcoming = snapshot.events.filter {
+            calendar.startOfDay(for: $0.date) >= calendar.startOfDay(for: now)
+        }.prefix(2)
+        var eventY = py + 396
+        if !snapshot.subscriptionConfigured {
+            Draw.text(
+                ctx, "可在设置中添加节假日 .ics 订阅",
+                x: x, y: eventY, font: Fonts.system(15), color: Color.textL)
+        }
+        for event in upcoming {
+            let dc = calendar.dateComponents([.month, .day], from: event.date)
+            let label = "\(dc.month ?? 0)/\(dc.day ?? 0)  \(event.title)"
+            Draw.text(
+                ctx, truncate(label, font: Fonts.system(16), maxW: CGFloat(w)),
+                x: x, y: eventY, font: Fonts.system(16), color: Color.green)
+            eventY += 25
         }
     }
 
