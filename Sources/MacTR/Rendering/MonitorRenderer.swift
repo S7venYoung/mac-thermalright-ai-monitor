@@ -1314,7 +1314,7 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
             center: CGPoint(x: cx, y: cy), radius: CGFloat(radius),
             startAngle: -.pi / 2,
             endAngle: -.pi / 2 + CGFloat(percent / 100) * .pi * 2,
-            clockwise: true)
+            clockwise: false)
         ctx.strokePath()
     }
 
