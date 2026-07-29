@@ -63,6 +63,60 @@ enum MiddleSlot: String, CaseIterable, Identifiable, Sendable {
     }
 }
 
+enum AppleWatchModule: String, CaseIterable, Identifiable, Sendable, Codable {
+    case codex, claude, token, disk, network, weather
+    case keyStats, calendar, jdAlliance, clock
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .codex: "Codex"
+        case .claude: "Claude"
+        case .token: "Token 用量"
+        case .disk: "磁盘"
+        case .network: "网络"
+        case .weather: "天气"
+        case .keyStats: "键鼠统计"
+        case .calendar: "日历"
+        case .jdAlliance: "京东联盟"
+        case .clock: "时钟"
+        }
+    }
+
+    var middleSlot: MiddleSlot? {
+        switch self {
+        case .codex: .codex
+        case .claude: .claude
+        case .token: .token
+        case .disk: .disk
+        case .network: .network
+        case .weather: .weather
+        case .keyStats: .keyStats
+        case .calendar: .calendar
+        case .jdAlliance: .jdAlliance
+        case .clock: nil
+        }
+    }
+}
+
+enum AppleWatchPosition: Int, CaseIterable, Identifiable, Sendable {
+    case hero, topLeft, topRight, bottomLeft, bottomCenter, bottomRight
+
+    var id: Int { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .hero: "主卡"
+        case .topLeft: "右上左"
+        case .topRight: "右上右"
+        case .bottomLeft: "右下左"
+        case .bottomCenter: "右下中"
+        case .bottomRight: "右下右"
+        }
+    }
+}
+
 // MARK: - AppState
 
 @Observable
@@ -129,6 +183,37 @@ final class AppState {
     var middleCarouselInterval =
         UserDefaults.standard.object(forKey: "middleCarouselInterval") as? Double
             ?? 15
+    var appleWatchModules: [AppleWatchModule] = {
+        let defaults: [AppleWatchModule] = [
+            .token, .jdAlliance, .calendar, .weather, .network, .clock,
+        ]
+        let saved = UserDefaults.standard.stringArray(
+            forKey: "appleWatchModules")?
+            .compactMap(AppleWatchModule.init(rawValue:))
+        return saved?.count == AppleWatchPosition.allCases.count
+            ? saved! : defaults
+    }()
+    var appleWatchCarousels: [Bool] = {
+        let saved = UserDefaults.standard.array(
+            forKey: "appleWatchCarousels") as? [Bool]
+        return saved?.count == AppleWatchPosition.allCases.count
+            ? saved! : Array(
+                repeating: false, count: AppleWatchPosition.allCases.count)
+    }()
+    var appleWatchRotations: [Set<AppleWatchModule>] = {
+        let defaults: [Set<AppleWatchModule>] = [
+            [.token, .codex], [.jdAlliance, .keyStats],
+            [.calendar, .weather], [.weather, .disk],
+            [.network, .keyStats], [.clock, .calendar],
+        ]
+        guard let data = UserDefaults.standard.data(
+            forKey: "appleWatchRotations"),
+              let values = try? JSONDecoder().decode(
+                [[AppleWatchModule]].self, from: data),
+              values.count == AppleWatchPosition.allCases.count
+        else { return defaults }
+        return values.map(Set.init)
+    }()
     var calendarSubscriptionURL =
         UserDefaults.standard.string(forKey: "calendarSubscriptionURL") ?? ""
     var jdStatsURL =
@@ -178,6 +263,9 @@ final class AppState {
                   middleCenterRotation: middleCenterRotation,
                   middleRightRotation: middleRightRotation,
                   middleCarouselInterval: middleCarouselInterval,
+                  appleWatchModules: appleWatchModules,
+                  appleWatchCarousels: appleWatchCarousels,
+                  appleWatchRotations: appleWatchRotations,
                   brightness: brightness,
                   interval: refreshInterval, rotate: rotateDisplay,
                   screenScheduleEnabled: screenScheduleEnabled,
@@ -230,6 +318,14 @@ final class AppState {
         UserDefaults.standard.set(
             middleCarouselInterval, forKey: "middleCarouselInterval")
         UserDefaults.standard.set(
+            appleWatchModules.map(\.rawValue), forKey: "appleWatchModules")
+        UserDefaults.standard.set(
+            appleWatchCarousels, forKey: "appleWatchCarousels")
+        if let data = try? JSONEncoder().encode(
+            appleWatchRotations.map(Array.init)) {
+            UserDefaults.standard.set(data, forKey: "appleWatchRotations")
+        }
+        UserDefaults.standard.set(
             calendarSubscriptionURL, forKey: "calendarSubscriptionURL")
         UserDefaults.standard.set(
             screenScheduleEnabled, forKey: "screenScheduleEnabled")
@@ -252,6 +348,9 @@ final class AppState {
                                middleCenterRotation: middleCenterRotation,
                                middleRightRotation: middleRightRotation,
                                middleCarouselInterval: middleCarouselInterval,
+                               appleWatchModules: appleWatchModules,
+                               appleWatchCarousels: appleWatchCarousels,
+                               appleWatchRotations: appleWatchRotations,
                                brightness: brightness, interval: refreshInterval,
                                rotate: rotateDisplay,
                                screenScheduleEnabled: screenScheduleEnabled,
@@ -312,6 +411,16 @@ final class DisplayEngine: @unchecked Sendable {
     ]
     private var middleRightRotation: Set<MiddleSlot> = [.network, .keyStats]
     private var middleCarouselInterval: Double = 15
+    private var appleWatchModules: [AppleWatchModule] = [
+        .token, .jdAlliance, .calendar, .weather, .network, .clock,
+    ]
+    private var appleWatchCarousels = Array(
+        repeating: false, count: AppleWatchPosition.allCases.count)
+    private var appleWatchRotations: [Set<AppleWatchModule>] = [
+        [.token, .codex], [.jdAlliance, .keyStats],
+        [.calendar, .weather], [.weather, .disk],
+        [.network, .keyStats], [.clock, .calendar],
+    ]
     private var brightness: Int = 5
     private var interval: Double = 0.5
     private var rotateDisplay: Bool = false
@@ -342,6 +451,9 @@ final class DisplayEngine: @unchecked Sendable {
                middleCenterRotation: Set<MiddleSlot>,
                middleRightRotation: Set<MiddleSlot>,
                middleCarouselInterval: Double,
+               appleWatchModules: [AppleWatchModule],
+               appleWatchCarousels: [Bool],
+               appleWatchRotations: [Set<AppleWatchModule>],
                brightness: Int, interval: Double, rotate: Bool,
                screenScheduleEnabled: Bool, screenOffMinutes: Int,
                screenOnMinutes: Int, weatherCity: String,
@@ -362,6 +474,9 @@ final class DisplayEngine: @unchecked Sendable {
         self.middleCenterRotation = middleCenterRotation
         self.middleRightRotation = middleRightRotation
         self.middleCarouselInterval = middleCarouselInterval
+        self.appleWatchModules = appleWatchModules
+        self.appleWatchCarousels = appleWatchCarousels
+        self.appleWatchRotations = appleWatchRotations
         self.brightness = brightness
         self.interval = interval
         self.rotateDisplay = rotate
@@ -385,6 +500,10 @@ final class DisplayEngine: @unchecked Sendable {
             rightRotation: middleRightRotation,
             carouselInterval: middleCarouselInterval)
         monitorRenderer.setDisplayTheme(theme)
+        monitorRenderer.setAppleWatchLayout(
+            modules: appleWatchModules, carousels: appleWatchCarousels,
+            rotations: appleWatchRotations,
+            carouselInterval: middleCarouselInterval)
         monitorRenderer.setWeatherConfig(
             city: weatherCity, token: caiyunToken,
             longitude: weatherLongitude, latitude: weatherLatitude)
@@ -436,6 +555,9 @@ final class DisplayEngine: @unchecked Sendable {
                         middleCenterRotation: Set<MiddleSlot>,
                         middleRightRotation: Set<MiddleSlot>,
                         middleCarouselInterval: Double,
+                        appleWatchModules: [AppleWatchModule],
+                        appleWatchCarousels: [Bool],
+                        appleWatchRotations: [Set<AppleWatchModule>],
                         brightness: Int,
                         interval: Double, rotate: Bool,
                         screenScheduleEnabled: Bool, screenOffMinutes: Int,
@@ -457,6 +579,9 @@ final class DisplayEngine: @unchecked Sendable {
         self.middleCenterRotation = middleCenterRotation
         self.middleRightRotation = middleRightRotation
         self.middleCarouselInterval = middleCarouselInterval
+        self.appleWatchModules = appleWatchModules
+        self.appleWatchCarousels = appleWatchCarousels
+        self.appleWatchRotations = appleWatchRotations
         self.brightness = brightness
         self.interval = interval
         self.rotateDisplay = rotate
@@ -480,6 +605,10 @@ final class DisplayEngine: @unchecked Sendable {
             rightRotation: middleRightRotation,
             carouselInterval: middleCarouselInterval)
         monitorRenderer.setDisplayTheme(theme)
+        monitorRenderer.setAppleWatchLayout(
+            modules: appleWatchModules, carousels: appleWatchCarousels,
+            rotations: appleWatchRotations,
+            carouselInterval: middleCarouselInterval)
         monitorRenderer.setWeatherConfig(
             city: weatherCity, token: caiyunToken,
             longitude: weatherLongitude, latitude: weatherLatitude)
