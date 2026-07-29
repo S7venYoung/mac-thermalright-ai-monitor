@@ -863,7 +863,8 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
             drawAppleWatchSection(ctx, x: x, y: py, w: w, h: ph)
             renderAgentColumn(
                 ctx, x: x + 28, w: w - 56, py: py,
-                name: name, accent: accent, usage: usage)
+                name: name, accent: accent, usage: usage,
+                drawsTintedBackground: false)
             return
         }
         let summary = appleWatchSummary(
@@ -1305,14 +1306,16 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
             ctx, "↓ 下载", x: x + 18, y: y + 64,
             font: Fonts.system(16, weight: .semibold), color: Color.green)
         drawRightAligned(
-            ctx, formatRate(network.rxBytesPerSec), rightX: x + w - 18,
-            y: y + 54, font: Fonts.system(30, weight: .bold), color: Color.textW)
+            ctx, formatRateWithUnit(network.rxBytesPerSec),
+            rightX: x + w - 18, y: y + 54,
+            font: Fonts.system(26, weight: .bold), color: Color.textW)
         Draw.text(
             ctx, "↑ 上传", x: x + 18, y: y + 130,
             font: Fonts.system(16, weight: .semibold), color: Color.orange)
         drawRightAligned(
-            ctx, formatRate(network.txBytesPerSec), rightX: x + w - 18,
-            y: y + 120, font: Fonts.system(30, weight: .bold), color: Color.textW)
+            ctx, formatRateWithUnit(network.txBytesPerSec),
+            rightX: x + w - 18, y: y + 120,
+            font: Fonts.system(26, weight: .bold), color: Color.textW)
     }
 
     private func drawAppleWatchClockCard(
@@ -1337,6 +1340,14 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
             return String(format: "%.1f", bytesPerSecond / 1_048_576)
         }
         return String(format: "%.1f", bytesPerSecond / 1024)
+    }
+
+    private func formatRateWithUnit(_ bytesPerSecond: Double) -> String {
+        if bytesPerSecond >= 1_048_576 {
+            return String(
+                format: "%.1f MB/s", bytesPerSecond / 1_048_576)
+        }
+        return String(format: "%.1f KB/s", bytesPerSecond / 1024)
     }
 
     private func renderAppleWatchSystem(
@@ -2757,8 +2768,11 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
                           name: "CODEX", accent: Color.cyan, usage: agents.codex)
     }
 
-    private func renderAgentColumn(_ ctx: CGContext, x: Int, w: Int, py: Int,
-                                   name: String, accent: CGColor, usage: AgentUsage) {
+    private func renderAgentColumn(
+        _ ctx: CGContext, x: Int, w: Int, py: Int,
+        name: String, accent: CGColor, usage: AgentUsage,
+        drawsTintedBackground: Bool = true
+    ) {
         let ph = Layout.panelHeight
 
         // Column background — three states, agent-tinted:
@@ -2784,20 +2798,24 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
         } else if usage.isWorking {
             bgAlpha = base + 0.13 * breath
         }
-        ctx.setFillColor(accent.copy(alpha: bgAlpha) ?? accent)
-        ctx.addPath(bgPath)
-        ctx.fillPath()
-        if usage.needsAttention {
-            ctx.setStrokeColor(accent.copy(alpha: blinkOn ? 0.9 : 0.25) ?? accent)
-            ctx.setLineWidth(2)
+        if drawsTintedBackground {
+            ctx.setFillColor(accent.copy(alpha: bgAlpha) ?? accent)
             ctx.addPath(bgPath)
-            ctx.strokePath()
-        } else if usage.isWorking {
-            // Faint breathing border to reinforce the "alive/working" feel
-            ctx.setStrokeColor(accent.copy(alpha: 0.12 + 0.28 * breath) ?? accent)
-            ctx.setLineWidth(1.5)
-            ctx.addPath(bgPath)
-            ctx.strokePath()
+            ctx.fillPath()
+            if usage.needsAttention {
+                ctx.setStrokeColor(
+                    accent.copy(alpha: blinkOn ? 0.9 : 0.25) ?? accent)
+                ctx.setLineWidth(2)
+                ctx.addPath(bgPath)
+                ctx.strokePath()
+            } else if usage.isWorking {
+                // Faint breathing border to reinforce the "alive/working" feel
+                ctx.setStrokeColor(
+                    accent.copy(alpha: 0.12 + 0.28 * breath) ?? accent)
+                ctx.setLineWidth(1.5)
+                ctx.addPath(bgPath)
+                ctx.strokePath()
+            }
         }
 
         // Header: name + activity indicator (right-aligned "● now" / "12m ago")
