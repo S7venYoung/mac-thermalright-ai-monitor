@@ -12,7 +12,7 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
 
     private let collector = SystemMetricsCollector()
     private let agentCollector = AgentUsageCollector()
-    private let keyStatsCollector = KeyStatsCollector()
+    private let keyStatsReader = KeyStatsReader()
     private let weatherCollector = WeatherCollector()
     private let calendarCollector = CalendarCollector()
     private let jdStatsCollector = JDStatsCollector()
@@ -93,9 +93,6 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
         metricsRunning = true
         lock.unlock()
         log("[Metrics] Starting collection...")
-        // keyStats owns event monitoring. MacTR only reads its persisted
-        // aggregate counters, avoiding duplicate global event taps.
-        keyStatsCollector.start(requestPermission: true)
         // First pass: prime CPU ticks (deltas will be zero)
         let cpu0 = collector.collectCPU()
         let mem = collector.collectMemory()
@@ -105,7 +102,7 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
         let disk = collector.collectDisk()
         let diskIO = collector.collectDiskIO()
         let network = collector.collectNetwork()
-        let keyStats = keyStatsCollector.collect()
+        let keyStats = keyStatsReader.collect()
         lock.lock()
         _cpu = cpu0; _mem = mem
         _temp = temp; _agents = agents; _sys = sys
@@ -127,7 +124,6 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
     func stopMetrics() {
         log("[Metrics] Stopping collection")
         metricsRunning = false
-        keyStatsCollector.stop()
     }
 
     func setMiddleSlots(
@@ -270,7 +266,7 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
             // Fast metrics every tick
             let cpu = collector.collectCPU()
             let mem = collector.collectMemory()
-            let keyStats = keyStatsCollector.collect()
+            let keyStats = keyStatsReader.collect()
             lock.lock()
             _cpu = cpu; _mem = mem; _keyStats = keyStats
             lock.unlock()
