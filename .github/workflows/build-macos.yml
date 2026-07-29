@@ -6,6 +6,7 @@ on:
     branches:
       - main
       - agent/integrate-keystats-data
+      - agent/apple-watch-theme
     paths:
       - "Sources/**"
       - "Package.swift"
