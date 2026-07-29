@@ -770,11 +770,13 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
                 primary: jdStats.available ? "\(jdStats.day.orders)" : "--",
                 primaryLabel: "今日成单",
                 rows: [
-                    ("销售", formatJDMoney(jdStats.day.estimatedSales)),
-                    ("佣金", formatJDMoney(jdStats.day.estimatedCommission)),
-                    ("本月", "\(jdStats.month.orders) 单"),
+                    ("今日佣金", formatJDMoney(jdStats.day.estimatedCommission)),
+                    ("本周佣金", formatJDMoney(jdStats.week.estimatedCommission)),
+                    ("本月佣金", formatJDMoney(jdStats.month.estimatedCommission)),
                 ],
-                footer: jdStats.available ? "数据已更新" : jdStats.errorMessage)
+                footer: jdStats.available
+                    ? "今日销售 \(formatJDMoney(jdStats.day.estimatedSales)) · 本月 \(jdStats.month.orders) 单"
+                    : jdStats.errorMessage)
         case .token:
             return AppleWatchModuleSummary(
                 title: "CODEX TOKEN", accent: Color.cyan,
@@ -1073,11 +1075,18 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
                 y: y + 116, font: Fonts.system(15, weight: .semibold),
                 color: Color.green)
         }
+        if summary.rows.count > 2 {
+            let third = summary.rows[2]
+            Draw.text(
+                ctx, "\(third.0) \(third.1)", x: x + 20, y: y + 146,
+                font: Fonts.system(14, weight: .semibold),
+                color: summary.accent)
+        }
         Draw.text(
             ctx,
-            truncate(summary.footer, font: Fonts.system(14), maxW: CGFloat(w - 40)),
-            x: x + 20, y: y + 157,
-            font: Fonts.system(14), color: Color.textL)
+            truncate(summary.footer, font: Fonts.system(12), maxW: CGFloat(w - 40)),
+            x: x + 20, y: y + 170,
+            font: Fonts.system(12), color: Color.textL)
     }
 
     private func fillAppleWatchCard(
