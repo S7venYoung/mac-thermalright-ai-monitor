@@ -1358,8 +1358,10 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
             0, min(100, (cpuTemperature - 40) / 60 * 100))
         drawAppleWatchRing(
             ctx, cx: cx, cy: cy, radius: 105,
-            percent: temperatureProgress, color: Color.red,
-            background: Color.redD)
+            // This LCD panel renders the two red tones with the opposite
+            // perceived brightness. Swap them only for the temperature ring.
+            percent: temperatureProgress, color: Color.redD,
+            background: Color.red)
         drawAppleWatchRing(
             ctx, cx: cx, cy: cy, radius: 79,
             percent: memPercent, color: Color.green,
