@@ -355,8 +355,18 @@ final class AgentUsageCollector: @unchecked Sendable {
         var project: String?
         var activity: String?
         var secondsAgo: Int?
-        let quotaUsed = codexQuotaCache?.used
-        let quotaResets = codexQuotaCache?.resets
+        var quotaUsed = codexQuotaCache?.used
+        var quotaResets = codexQuotaCache?.resets
+        if let resets = quotaResets, resets <= Date() {
+            // No token_count event is emitted merely because a quota window
+            // rolled over. Without a new Codex request, the cache would keep
+            // showing the previous window's remaining percentage forever.
+            // Once its authoritative reset time passes, the new untouched
+            // window starts at 0% used; the next event will replace this with
+            // the actual value and next reset date.
+            quotaUsed = 0
+            quotaResets = nil
+        }
         var attention = false
         var working = false
         var step: (current: Int, total: Int, text: String)?
