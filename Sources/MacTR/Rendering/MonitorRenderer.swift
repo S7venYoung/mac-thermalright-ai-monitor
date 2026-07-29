@@ -43,6 +43,7 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
 
     // User-selected fixed middle panel
     private let panelLock = NSLock()
+    private var displayTheme: DisplayTheme = .classic
     private var middleLeft: MiddleSlot = .codex
     private var middleCenter: MiddleSlot = .disk
     private var middleRight: MiddleSlot = .network
@@ -150,6 +151,18 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
         middleRightRotation = rightRotation
         middleCarouselInterval = max(5, carouselInterval)
         panelLock.unlock()
+    }
+
+    func setDisplayTheme(_ theme: DisplayTheme) {
+        panelLock.lock()
+        displayTheme = theme
+        panelLock.unlock()
+    }
+
+    private func selectedDisplayTheme() -> DisplayTheme {
+        panelLock.lock()
+        defer { panelLock.unlock() }
+        return displayTheme
     }
 
     func setWeatherConfig(
@@ -442,16 +455,25 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
                                   bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
         else { return nil }
         ctx.translateBy(x: 0, y: CGFloat(h)); ctx.scaleBy(x: 1, y: -1)
-        Draw.gradientBackground(ctx)
-        renderCPU(ctx, cpu: cpu, temp: temp, agentsBusy: true)
         let slots = selectedMiddleSlots()
-        renderMiddleSlots(ctx, left: slots.0, center: slots.1,
-                          right: slots.2, agents: agents,
-                          disk: disk, diskIO: diskIO, network: network,
-                          tokenUsage: tokenUsage, keyStats: .demo,
-                          weather: .unavailable, jdStats: .unavailable,
-                          codexToken: .demo)
-        renderMemory(ctx, mem: mem, sys: sys, agentsBusy: true)
+        if selectedDisplayTheme() == .appleWatch {
+            renderAppleWatchTheme(
+                ctx, slots: slots, cpu: cpu, mem: mem, temp: temp, sys: sys,
+                agents: agents, disk: disk, diskIO: diskIO, network: network,
+                tokenUsage: tokenUsage, keyStats: .demo, weather: .unavailable,
+                calendarSnapshot: .empty, jdStats: .unavailable,
+                codexToken: .demo)
+        } else {
+            Draw.gradientBackground(ctx)
+            renderCPU(ctx, cpu: cpu, temp: temp, agentsBusy: true)
+            renderMiddleSlots(ctx, left: slots.0, center: slots.1,
+                              right: slots.2, agents: agents,
+                              disk: disk, diskIO: diskIO, network: network,
+                              tokenUsage: tokenUsage, keyStats: .demo,
+                              weather: .unavailable, jdStats: .unavailable,
+                              codexToken: .demo)
+            renderMemory(ctx, mem: mem, sys: sys, agentsBusy: true)
+        }
         return ctx.makeImage()
     }
 
@@ -526,10 +548,6 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
         ctx.translateBy(x: 0, y: CGFloat(h))
         ctx.scaleBy(x: 1, y: -1)
 
-        // Background
-        Draw.gradientBackground(ctx)
-
-        // Panels
         let slots = selectedMiddleSlots()
         let codexVisible =
             slots.0 == .codex || slots.1 == .codex || slots.2 == .codex
@@ -538,20 +556,199 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
         let agentsBusy =
             (codexVisible && (agents.codex.isWorking || agents.codex.needsAttention))
             || (claudeVisible && (agents.claude.isWorking || agents.claude.needsAttention))
-        renderCPU(ctx, cpu: cpu, temp: temp, agentsBusy: agentsBusy)
-
-        renderMiddleSlots(ctx, left: slots.0, center: slots.1,
-                          right: slots.2, agents: agents,
-                          disk: disk, diskIO: diskIO, network: network,
-                          tokenUsage: tokenUsage, keyStats: keyStats,
-                          weather: weather, calendarSnapshot: calendarSnapshot,
-                          jdStats: jdStats, codexToken: codexToken)
-
-        renderMemory(ctx, mem: mem, sys: sys, agentsBusy: agentsBusy)
+        if selectedDisplayTheme() == .appleWatch {
+            renderAppleWatchTheme(
+                ctx, slots: slots, cpu: cpu, mem: mem, temp: temp, sys: sys,
+                agents: agents, disk: disk, diskIO: diskIO, network: network,
+                tokenUsage: tokenUsage, keyStats: keyStats, weather: weather,
+                calendarSnapshot: calendarSnapshot, jdStats: jdStats,
+                codexToken: codexToken)
+        } else {
+            Draw.gradientBackground(ctx)
+            renderCPU(ctx, cpu: cpu, temp: temp, agentsBusy: agentsBusy)
+            renderMiddleSlots(ctx, left: slots.0, center: slots.1,
+                              right: slots.2, agents: agents,
+                              disk: disk, diskIO: diskIO, network: network,
+                              tokenUsage: tokenUsage, keyStats: keyStats,
+                              weather: weather, calendarSnapshot: calendarSnapshot,
+                              jdStats: jdStats, codexToken: codexToken)
+            renderMemory(ctx, mem: mem, sys: sys, agentsBusy: agentsBusy)
+        }
 
         let image = ctx.makeImage()
         ctx.restoreGState()
         return image
+    }
+
+    private func renderAppleWatchTheme(
+        _ ctx: CGContext, slots: (MiddleSlot, MiddleSlot, MiddleSlot),
+        cpu: CPUSnapshot, mem: MemorySnapshot, temp: TemperatureSnapshot,
+        sys: SystemSnapshot?, agents: AgentsSnapshot, disk: DiskSnapshot,
+        diskIO: DiskIOSnapshot, network: NetworkSnapshot,
+        tokenUsage: TokenUsageSnapshot, keyStats: KeyStatsSnapshot,
+        weather: WeatherSnapshot, calendarSnapshot: CalendarSnapshot,
+        jdStats: JDStatsSnapshot, codexToken: CodexTokenSnapshot
+    ) {
+        ctx.setFillColor(CGColor(gray: 0, alpha: 1))
+        ctx.fill(CGRect(x: 0, y: 0, width: Layout.width, height: Layout.height))
+
+        let py = 14
+        let ph = 452
+        let systemX = 14
+        let systemW = 350
+        let heroX = 374
+        let heroW = 720
+        let sideX = 1104
+        let sideW = 396
+        let farX = 1510
+        let farW = 396
+
+        Draw.panel(
+            ctx, x: systemX, y: py, w: systemW, h: ph, accent: Color.cyan)
+        renderAppleWatchSystem(
+            ctx, x: systemX, w: systemW, py: py,
+            cpu: cpu, mem: mem, temp: temp)
+
+        renderAppleWatchComplication(
+            ctx, slot: slots.0, panelX: heroX, panelW: heroW,
+            py: py, ph: ph, agents: agents, disk: disk, diskIO: diskIO,
+            network: network, tokenUsage: tokenUsage, keyStats: keyStats,
+            weather: weather, calendarSnapshot: calendarSnapshot,
+            jdStats: jdStats, codexToken: codexToken)
+        renderAppleWatchComplication(
+            ctx, slot: slots.1, panelX: sideX, panelW: sideW,
+            py: py, ph: ph, agents: agents, disk: disk, diskIO: diskIO,
+            network: network, tokenUsage: tokenUsage, keyStats: keyStats,
+            weather: weather, calendarSnapshot: calendarSnapshot,
+            jdStats: jdStats, codexToken: codexToken)
+        renderAppleWatchComplication(
+            ctx, slot: slots.2, panelX: farX, panelW: farW,
+            py: py, ph: ph, agents: agents, disk: disk, diskIO: diskIO,
+            network: network, tokenUsage: tokenUsage, keyStats: keyStats,
+            weather: weather, calendarSnapshot: calendarSnapshot,
+            jdStats: jdStats, codexToken: codexToken)
+
+        if let sys {
+            let hours = sys.uptimeSeconds / 3600
+            let uptime = hours >= 24
+                ? "\(hours / 24)d \(hours % 24)h"
+                : "\(hours)h \((sys.uptimeSeconds % 3600) / 60)m"
+            drawRightAligned(
+                ctx, uptime, rightX: systemX + systemW - 20,
+                y: py + ph - 31, font: Fonts.system(14), color: Color.textL)
+        }
+    }
+
+    private func renderAppleWatchComplication(
+        _ ctx: CGContext, slot: MiddleSlot, panelX: Int, panelW: Int,
+        py: Int, ph: Int, agents: AgentsSnapshot, disk: DiskSnapshot,
+        diskIO: DiskIOSnapshot, network: NetworkSnapshot,
+        tokenUsage: TokenUsageSnapshot, keyStats: KeyStatsSnapshot,
+        weather: WeatherSnapshot, calendarSnapshot: CalendarSnapshot,
+        jdStats: JDStatsSnapshot, codexToken: CodexTokenSnapshot
+    ) {
+        Draw.panel(
+            ctx, x: panelX, y: py, w: panelW, h: ph,
+            accent: middleSlotAccent(slot))
+        renderMiddleSlot(
+            ctx, slot: slot, x: panelX + 20, w: panelW - 40,
+            py: py, ph: ph, agents: agents, disk: disk, diskIO: diskIO,
+            network: network, tokenUsage: tokenUsage, keyStats: keyStats,
+            weather: weather, calendarSnapshot: calendarSnapshot,
+            jdStats: jdStats, codexToken: codexToken)
+    }
+
+    private func renderAppleWatchSystem(
+        _ ctx: CGContext, x: Int, w: Int, py: Int,
+        cpu: CPUSnapshot, mem: MemorySnapshot, temp: TemperatureSnapshot
+    ) {
+        Draw.text(
+            ctx, "SYSTEM", x: x + 22, y: py + 17,
+            font: Fonts.system(22, weight: .bold), color: Color.cyan)
+
+        let cx = x + w / 2
+        let cy = py + 164
+        let cpuPercent = max(0, min(100, cpu.total))
+        let memPercent = max(0, min(100, mem.percent))
+        let cpuTemperature = temp.cpuTemp ?? 0
+        drawAppleWatchRing(
+            ctx, cx: cx, cy: cy, radius: 105,
+            percent: cpuPercent, color: Color.red,
+            background: Color.redD)
+        drawAppleWatchRing(
+            ctx, cx: cx, cy: cy, radius: 79,
+            percent: memPercent, color: Color.green,
+            background: Color.greenD)
+        drawAppleWatchRing(
+            ctx, cx: cx, cy: cy, radius: 53,
+            percent: min(100, max(0, cpuTemperature)),
+            color: Color.cyan, background: Color.cyanD)
+        Draw.centeredText(
+            ctx, "\(Int(cpuPercent.rounded()))",
+            cx: cx, y: cy - 35,
+            font: Fonts.system(50, weight: .bold), color: Color.textW)
+        Draw.centeredText(
+            ctx, "CPU %",
+            cx: cx, y: cy + 18,
+            font: Fonts.system(16, weight: .semibold), color: Color.textL)
+
+        let cardY = py + 300
+        let gap = 12
+        let cardW = (w - 44 - gap) / 2
+        drawAppleWatchMetricCard(
+            ctx, x: x + 22, y: cardY, w: cardW,
+            title: "温度", value: "\(Int(cpuTemperature.rounded()))°",
+            detail: "系统负载", color: Color.red)
+        drawAppleWatchMetricCard(
+            ctx, x: x + 22 + cardW + gap, y: cardY, w: cardW,
+            title: "内存", value: "\(Int(memPercent.rounded()))%",
+            detail: String(
+                format: "可用 %.1fG",
+                Double(mem.available) / 1_073_741_824),
+            color: Color.green)
+    }
+
+    private func drawAppleWatchRing(
+        _ ctx: CGContext, cx: Int, cy: Int, radius: Int,
+        percent: Double, color: CGColor, background: CGColor
+    ) {
+        let width: CGFloat = 15
+        let rect = CGRect(
+            x: cx - radius, y: cy - radius,
+            width: radius * 2, height: radius * 2)
+        ctx.setLineWidth(width)
+        ctx.setLineCap(.round)
+        ctx.setStrokeColor(background)
+        ctx.strokeEllipse(in: rect)
+        ctx.setStrokeColor(color)
+        ctx.addArc(
+            center: CGPoint(x: cx, y: cy), radius: CGFloat(radius),
+            startAngle: -.pi / 2,
+            endAngle: -.pi / 2 + CGFloat(percent / 100) * .pi * 2,
+            clockwise: false)
+        ctx.strokePath()
+    }
+
+    private func drawAppleWatchMetricCard(
+        _ ctx: CGContext, x: Int, y: Int, w: Int,
+        title: String, value: String, detail: String, color: CGColor
+    ) {
+        let rect = CGRect(x: x, y: y, width: w, height: 112)
+        ctx.setFillColor(CGColor(red: 28/255, green: 28/255, blue: 30/255, alpha: 1))
+        ctx.addPath(
+            CGPath(
+                roundedRect: rect, cornerWidth: 24, cornerHeight: 24,
+                transform: nil))
+        ctx.fillPath()
+        Draw.text(
+            ctx, title, x: x + 15, y: y + 13,
+            font: Fonts.system(16, weight: .semibold), color: color)
+        Draw.text(
+            ctx, value, x: x + 15, y: y + 39,
+            font: Fonts.system(34, weight: .bold), color: Color.textW)
+        Draw.text(
+            ctx, detail, x: x + 15, y: y + 84,
+            font: Fonts.system(13), color: Color.textL)
     }
 
     // MARK: - CPU Panel
