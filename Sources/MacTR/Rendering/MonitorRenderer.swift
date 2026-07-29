@@ -995,7 +995,7 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
         let cpuTemperature = temp.cpuTemp ?? 0
         drawAppleWatchRing(
             ctx, cx: cx, cy: cy, radius: 105,
-            percent: cpuPercent, color: Color.red,
+            percent: min(100, max(0, cpuTemperature)), color: Color.red,
             background: Color.redD)
         drawAppleWatchRing(
             ctx, cx: cx, cy: cy, radius: 79,
@@ -1003,7 +1003,7 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
             background: Color.greenD)
         drawAppleWatchRing(
             ctx, cx: cx, cy: cy, radius: 53,
-            percent: min(100, max(0, cpuTemperature)),
+            percent: cpuPercent,
             color: Color.cyan, background: Color.cyanD)
         Draw.centeredText(
             ctx, "\(Int(cpuPercent.rounded()))",
@@ -1047,7 +1047,7 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
             center: CGPoint(x: cx, y: cy), radius: CGFloat(radius),
             startAngle: -.pi / 2,
             endAngle: -.pi / 2 + CGFloat(percent / 100) * .pi * 2,
-            clockwise: false)
+            clockwise: true)
         ctx.strokePath()
     }
 
