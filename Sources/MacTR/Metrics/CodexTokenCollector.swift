@@ -11,18 +11,34 @@ struct CodexTokenSnapshot: Sendable {
     let todayTokens: UInt64
     let lifetimeTokens: UInt64
     let peakDailyTokens: UInt64
+    let longestRunningTurnSeconds: Int
+    let currentStreakDays: Int
+    let longestStreakDays: Int
+    let dailyTokens: [String: UInt64]
+    let resetCreditsAvailable: Int?
     let primary: CodexQuotaWindowSnapshot?
     let secondary: CodexQuotaWindowSnapshot?
     let errorMessage: String
 
     static let loading = CodexTokenSnapshot(
         available: false, todayTokens: 0, lifetimeTokens: 0,
-        peakDailyTokens: 0, primary: nil, secondary: nil,
+        peakDailyTokens: 0, longestRunningTurnSeconds: 0,
+        currentStreakDays: 0, longestStreakDays: 0, dailyTokens: [:],
+        resetCreditsAvailable: nil,
+        primary: nil, secondary: nil,
         errorMessage: "正在读取 Codex 用量…")
 
     static let demo = CodexTokenSnapshot(
         available: true, todayTokens: 12_800_000,
         lifetimeTokens: 388_600_000, peakDailyTokens: 31_500_000,
+        longestRunningTurnSeconds: 37 * 60 + 28,
+        currentStreakDays: 2, longestStreakDays: 6,
+        dailyTokens: [
+            "2026-07-21": 11_600_000, "2026-07-22": 3_700_000,
+            "2026-07-23": 61_100_000, "2026-07-27": 6_700_000,
+            "2026-07-28": 118_200_000, "2026-07-29": 12_800_000,
+        ],
+        resetCreditsAvailable: 2,
         primary: CodexQuotaWindowSnapshot(
             label: "5h", remainingPercent: 82,
             resetsAt: Date().addingTimeInterval(2.5 * 3600)),
@@ -108,7 +124,10 @@ final class CodexTokenCollector: @unchecked Sendable {
     private func unavailable(_ message: String) -> CodexTokenSnapshot {
         CodexTokenSnapshot(
             available: false, todayTokens: 0, lifetimeTokens: 0,
-            peakDailyTokens: 0, primary: nil, secondary: nil,
+            peakDailyTokens: 0, longestRunningTurnSeconds: 0,
+            currentStreakDays: 0, longestStreakDays: 0, dailyTokens: [:],
+            resetCreditsAvailable: nil,
+            primary: nil, secondary: nil,
             errorMessage: message)
     }
 
@@ -118,6 +137,8 @@ final class CodexTokenCollector: @unchecked Sendable {
         let rateLimits = rateResult?["rateLimits"] as? [String: Any]
         let byID = rateResult?["rateLimitsByLimitId"] as? [String: Any]
         let codexLimit = (byID?["codex"] as? [String: Any]) ?? rateLimits
+        let resetCredits = rateResult?["rateLimitResetCredits"]
+            as? [String: Any]
 
         let primary = quotaWindow(
             codexLimit?["primary"] as? [String: Any], fallback: "额度")
@@ -133,12 +154,26 @@ final class CodexTokenCollector: @unchecked Sendable {
         let today = buckets
             .filter { $0["startDate"] as? String == todayKey }
             .reduce(UInt64(0)) { $0 + uint($1["tokens"]) }
+        let dailyTokens = buckets.reduce(into: [String: UInt64]()) {
+            result, bucket in
+            guard let date = bucket["startDate"] as? String else { return }
+            result[date, default: 0] += uint(bucket["tokens"])
+        }
 
         return CodexTokenSnapshot(
             available: true,
             todayTokens: today,
             lifetimeTokens: uint(summary?["lifetimeTokens"]),
             peakDailyTokens: uint(summary?["peakDailyTokens"]),
+            longestRunningTurnSeconds:
+                (summary?["longestRunningTurnSec"] as? NSNumber)?.intValue ?? 0,
+            currentStreakDays:
+                (summary?["currentStreakDays"] as? NSNumber)?.intValue ?? 0,
+            longestStreakDays:
+                (summary?["longestStreakDays"] as? NSNumber)?.intValue ?? 0,
+            dailyTokens: dailyTokens,
+            resetCreditsAvailable:
+                (resetCredits?["availableCount"] as? NSNumber)?.intValue,
             primary: primary,
             secondary: secondary,
             errorMessage: "")
