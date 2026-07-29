@@ -16,6 +16,7 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
     private let weatherCollector = WeatherCollector()
     private let calendarCollector = CalendarCollector()
     private let jdStatsCollector = JDStatsCollector()
+    private let codexTokenCollector = CodexTokenCollector()
 
     // Background metrics collection — decoupled from frame loop for consistent refresh
     private let metricsQueue = DispatchQueue(label: "com.thermalvision.metrics")
@@ -35,6 +36,7 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
     private var _weather: WeatherSnapshot?
     private var _calendar: CalendarSnapshot = .empty
     private var _jdStats: JDStatsSnapshot = .unavailable
+    private var _codexToken: CodexTokenSnapshot = .loading
     private var weatherRefreshRequested = true
     private var calendarRefreshRequested = true
     private var jdStatsRefreshRequested = true
@@ -124,6 +126,7 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
     func stopMetrics() {
         log("[Metrics] Stopping collection")
         metricsRunning = false
+        codexTokenCollector.stop()
     }
 
     func setMiddleSlots(
@@ -263,6 +266,13 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
         var calendarTick = 7200
         var jdStatsTick = 600
         while metricsRunning {
+            codexTokenCollector.refreshIfNeeded { [weak self] snapshot in
+                guard let self else { return }
+                self.lock.lock()
+                self._codexToken = snapshot
+                self.lock.unlock()
+            }
+
             // Fast metrics every tick
             let cpu = collector.collectCPU()
             let mem = collector.collectMemory()
@@ -439,7 +449,8 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
                           right: slots.2, agents: agents,
                           disk: disk, diskIO: diskIO, network: network,
                           tokenUsage: tokenUsage, keyStats: .demo,
-                          weather: .unavailable, jdStats: .unavailable)
+                          weather: .unavailable, jdStats: .unavailable,
+                          codexToken: .demo)
         renderMemory(ctx, mem: mem, sys: sys, agentsBusy: true)
         return ctx.makeImage()
     }
@@ -462,12 +473,14 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
         let weather: WeatherSnapshot
         let calendarSnapshot: CalendarSnapshot
         let jdStats: JDStatsSnapshot
+        let codexToken: CodexTokenSnapshot
         if demoMode {
             (cpu, mem, temp, sys, agents, disk, diskIO, network, tokenUsage) = demoData()
             keyStats = .demo
             weather = .unavailable
             calendarSnapshot = .empty
             jdStats = .unavailable
+            codexToken = .demo
         } else {
             // Read cached metrics (never blocks — uses latest available values)
             lock.lock()
@@ -486,6 +499,7 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
             weather = _weather ?? .unavailable
             calendarSnapshot = _calendar
             jdStats = _jdStats
+            codexToken = _codexToken
             lock.unlock()
         }
 
@@ -531,7 +545,7 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
                           disk: disk, diskIO: diskIO, network: network,
                           tokenUsage: tokenUsage, keyStats: keyStats,
                           weather: weather, calendarSnapshot: calendarSnapshot,
-                          jdStats: jdStats)
+                          jdStats: jdStats, codexToken: codexToken)
 
         renderMemory(ctx, mem: mem, sys: sys, agentsBusy: agentsBusy)
 
@@ -1150,7 +1164,8 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
                                    keyStats: KeyStatsSnapshot,
                                    weather: WeatherSnapshot,
                                    calendarSnapshot: CalendarSnapshot = .empty,
-                                   jdStats: JDStatsSnapshot = .unavailable) {
+                                   jdStats: JDStatsSnapshot = .unavailable,
+                                   codexToken: CodexTokenSnapshot = .loading) {
         let py = Layout.panelY
         let ph = Layout.panelHeight
 
@@ -1164,13 +1179,13 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
                 py: py, ph: ph, agents: agents, disk: disk, diskIO: diskIO,
                 network: network, tokenUsage: tokenUsage, keyStats: keyStats,
                 weather: weather, calendarSnapshot: calendarSnapshot,
-                jdStats: jdStats)
+                jdStats: jdStats, codexToken: codexToken)
         }
     }
 
     private func middleSlotAccent(_ slot: MiddleSlot) -> CGColor {
         switch slot {
-        case .codex, .disk, .keyStats, .weather, .calendar:
+        case .codex, .disk, .keyStats, .weather, .calendar, .token:
             return Color.cyan
         case .jdAlliance:
             return Color.orange
@@ -1189,7 +1204,8 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
                                   keyStats: KeyStatsSnapshot,
                                   weather: WeatherSnapshot,
                                   calendarSnapshot: CalendarSnapshot,
-                                  jdStats: JDStatsSnapshot) {
+                                  jdStats: JDStatsSnapshot,
+                                  codexToken: CodexTokenSnapshot) {
         switch slot {
         case .codex:
             renderAgentColumn(ctx, x: x, w: w, py: py,
@@ -1218,7 +1234,151 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
         case .jdAlliance:
             renderJDAllianceColumn(
                 ctx, x: x, w: w, py: py, ph: ph, stats: jdStats)
+        case .token:
+            renderCodexTokenColumn(
+                ctx, x: x, w: w, py: py, ph: ph, stats: codexToken)
         }
+    }
+
+    private func renderCodexTokenColumn(
+        _ ctx: CGContext, x: Int, w: Int, py: Int, ph: Int,
+        stats: CodexTokenSnapshot
+    ) {
+        Draw.text(
+            ctx, "CODEX TOKEN", x: x, y: py + 14,
+            font: Fonts.system(24, weight: .bold), color: Color.cyan)
+
+        guard stats.available else {
+            Draw.centeredText(
+                ctx, stats.errorMessage,
+                cx: x + w / 2, y: py + ph / 2 - 10,
+                font: Fonts.system(18), color: Color.textD)
+            return
+        }
+
+        Draw.text(
+            ctx, "今日用量", x: x, y: py + 62,
+            font: Fonts.system(17, weight: .medium), color: Color.textL)
+        Draw.text(
+            ctx, formatCodexTokenCount(stats.todayTokens),
+            x: x, y: py + 87,
+            font: Fonts.system(48, weight: .bold), color: Color.textW)
+
+        Draw.line(
+            ctx, from: CGPoint(x: x, y: py + 151),
+            to: CGPoint(x: x + w, y: py + 151), color: Color.border)
+
+        let windows = [stats.primary, stats.secondary].compactMap { $0 }
+        var quotaY = py + 174
+        for window in windows.prefix(2) {
+            renderCodexQuotaRow(
+                ctx, x: x, w: w, y: quotaY, window: window)
+            quotaY += 81
+        }
+
+        Draw.line(
+            ctx, from: CGPoint(x: x, y: py + 337),
+            to: CGPoint(x: x + w, y: py + 337), color: Color.border)
+
+        let lifetime = formatCodexTokenCount(stats.lifetimeTokens)
+        let peak = formatCodexTokenCount(stats.peakDailyTokens)
+        Draw.text(
+            ctx, "累计 Token", x: x, y: py + 360,
+            font: Fonts.system(16), color: Color.textL)
+        drawRightAligned(
+            ctx, lifetime, rightX: x + w, y: py + 356,
+            font: Fonts.system(21, weight: .bold), color: Color.cyan)
+        Draw.text(
+            ctx, "单日峰值", x: x, y: py + 400,
+            font: Fonts.system(16), color: Color.textL)
+        drawRightAligned(
+            ctx, peak, rightX: x + w, y: py + 396,
+            font: Fonts.system(21, weight: .semibold), color: Color.green)
+    }
+
+    private func renderCodexQuotaRow(
+        _ ctx: CGContext, x: Int, w: Int, y: Int,
+        window: CodexQuotaWindowSnapshot
+    ) {
+        let remaining = window.remainingPercent
+        let percentText = remaining.map { String(format: "%.0f%%", $0) } ?? "--"
+        let color: CGColor
+        if let remaining {
+            color = remaining > 50
+                ? Color.green : (remaining > 20 ? Color.orange : Color.red)
+        } else {
+            color = Color.textD
+        }
+        Draw.text(
+            ctx, window.label, x: x, y: y,
+            font: Fonts.system(17, weight: .semibold), color: Color.textW)
+        Draw.text(
+            ctx, percentText, x: x + 47, y: y,
+            font: Fonts.system(17, weight: .bold), color: color)
+        if let reset = window.resetsAt {
+            drawRightAligned(
+                ctx, codexResetText(reset), rightX: x + w, y: y + 1,
+                font: Fonts.system(14), color: Color.textL)
+        }
+        renderSegmentedQuotaBar(
+            ctx, x: x, y: y + 31, w: w,
+            percent: remaining ?? 0, color: color)
+    }
+
+    private func renderSegmentedQuotaBar(
+        _ ctx: CGContext, x: Int, y: Int, w: Int,
+        percent: Double, color: CGColor
+    ) {
+        let count = 20
+        let gap = 3
+        let segmentW = max(2, (w - gap * (count - 1)) / count)
+        let filled = Int((max(0, min(100, percent)) / 100 * Double(count)).rounded())
+        for index in 0..<count {
+            let rect = CGRect(
+                x: x + index * (segmentW + gap), y: y,
+                width: segmentW, height: 10)
+            ctx.setFillColor(index < filled ? color : Color.barBG)
+            ctx.addPath(
+                CGPath(
+                    roundedRect: rect, cornerWidth: 3, cornerHeight: 3,
+                    transform: nil))
+            ctx.fillPath()
+        }
+    }
+
+    private func drawRightAligned(
+        _ ctx: CGContext, _ text: String, rightX: Int, y: Int,
+        font: NSFont, color: CGColor
+    ) {
+        let width = (text as NSString).size(
+            withAttributes: [.font: font]).width
+        Draw.text(
+            ctx, text, x: Int(CGFloat(rightX) - width), y: y,
+            font: font, color: color)
+    }
+
+    private func codexResetText(_ date: Date) -> String {
+        let seconds = max(0, Int(date.timeIntervalSinceNow))
+        if seconds >= 86400 {
+            return "\(seconds / 86400)天\(seconds % 86400 / 3600)小时后"
+        }
+        if seconds >= 3600 {
+            return "\(seconds / 3600)小时\(seconds % 3600 / 60)分后"
+        }
+        return "\(max(1, seconds / 60))分钟后"
+    }
+
+    private func formatCodexTokenCount(_ value: UInt64) -> String {
+        if value >= 1_000_000_000 {
+            return String(format: "%.2fB", Double(value) / 1_000_000_000)
+        }
+        if value >= 1_000_000 {
+            return String(format: "%.1fM", Double(value) / 1_000_000)
+        }
+        if value >= 1_000 {
+            return String(format: "%.1fK", Double(value) / 1_000)
+        }
+        return "\(value)"
     }
 
     private func renderJDAllianceColumn(
