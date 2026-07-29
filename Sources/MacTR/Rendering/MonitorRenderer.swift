@@ -804,6 +804,16 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
                 stats: codexToken, liveUsage: agents.codex)
             return
         }
+        if slot == .codex || slot == .claude {
+            let usage = slot == .codex ? agents.codex : agents.claude
+            let name = slot == .codex ? "CODEX" : "CLAUDE"
+            let accent = slot == .codex ? Color.cyan : Color.claude
+            drawAppleWatchSection(ctx, x: x, y: py, w: w, h: ph)
+            renderAgentColumn(
+                ctx, x: x + 28, w: w - 56, py: py,
+                name: name, accent: accent, usage: usage)
+            return
+        }
         let summary = appleWatchSummary(
             slot: slot, agents: agents, disk: disk, diskIO: diskIO,
             network: network, keyStats: keyStats, weather: weather,
