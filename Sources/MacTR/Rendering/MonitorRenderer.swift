@@ -185,6 +185,7 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
         jdStatsURL = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
         jdStatsToken = token.trimmingCharacters(in: .whitespacesAndNewlines)
         panelLock.unlock()
+        jdStatsCollector.invalidate()
         lock.lock()
         _jdStats = .unavailable
         jdStatsRefreshRequested = true
