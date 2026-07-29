@@ -207,14 +207,14 @@ class Collector(threading.Thread):
             return saved
         return now_shanghai() - timedelta(days=90)
 
-    def fetch_window(self, start, end):
+    def fetch_window(self, start, end, query_type=3):
         page = 1
         collected = 0
         while not self.stop_event.is_set():
             result = self.client.query_order_rows(
                 start.strftime(TIME_FORMAT),
                 end.strftime(TIME_FORMAT),
-                query_type=3,
+                query_type=query_type,
                 page_index=page,
                 page_size=500,
             )
@@ -228,8 +228,34 @@ class Collector(threading.Thread):
             time.sleep(0.2)
         return collected
 
+    def seed_recent_orders(self):
+        """Populate current day/week/month first so live dashboards are useful."""
+        current = now_shanghai()
+        month_key = current.strftime("%Y-%m")
+        if self.store.metadata("recent_seed_month") == month_key:
+            return
+        day_start = current.replace(hour=0, minute=0, second=0, microsecond=0)
+        week_start = day_start - timedelta(days=day_start.weekday())
+        month_start = day_start.replace(day=1)
+        boundaries = [day_start, week_start, month_start]
+        seeded_to = current
+        for boundary in boundaries:
+            cursor = seeded_to
+            while cursor > boundary and not self.stop_event.is_set():
+                window_start = max(boundary, cursor - timedelta(hours=1))
+                self.fetch_window(window_start, cursor, query_type=1)
+                cursor = window_start
+                self.stop_event.wait(0.5)
+            seeded_to = boundary
+        self.store.set_metadata("recent_seed_month", month_key)
+
     def run(self):
         cursor = self.initial_cursor()
+        try:
+            self.seed_recent_orders()
+            self.store.set_metadata("last_error", "")
+        except Exception as exc:
+            self.store.set_metadata("last_error", str(exc)[:500])
         while not self.stop_event.is_set():
             current = now_shanghai()
             try:
