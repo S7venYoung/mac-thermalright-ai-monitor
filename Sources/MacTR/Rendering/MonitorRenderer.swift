@@ -1237,13 +1237,13 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
         case .token:
             renderCodexTokenColumn(
                 ctx, x: x, w: w, py: py, ph: ph, stats: codexToken,
-                liveTodayTokens: agents.codex.todayTotalTokens)
+                liveUsage: agents.codex)
         }
     }
 
     private func renderCodexTokenColumn(
         _ ctx: CGContext, x: Int, w: Int, py: Int, ph: Int,
-        stats: CodexTokenSnapshot, liveTodayTokens: UInt64
+        stats: CodexTokenSnapshot, liveUsage: AgentUsage
     ) {
         Draw.text(
             ctx, "CODEX TOKEN", x: x, y: py + 14,
@@ -1257,65 +1257,81 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
             return
         }
 
-        let todayTokens = max(stats.todayTokens, liveTodayTokens)
-        drawRightAligned(
-            ctx, "今日 \(formatCodexTokenCount(todayTokens))",
-            rightX: x + w, y: py + 19,
-            font: Fonts.system(17, weight: .semibold), color: Color.green)
+        let todayTokens = max(stats.todayTokens, liveUsage.todayTotalTokens)
+        Draw.text(
+            ctx, "今日 Token", x: x, y: py + 55,
+            font: Fonts.system(17, weight: .medium), color: Color.textL)
+        Draw.text(
+            ctx, formatTokensCN(todayTokens), x: x, y: py + 79,
+            font: Fonts.system(43, weight: .bold), color: Color.textW)
+
+        let ioFont = Fonts.system(16, weight: .semibold)
+        let ioRows: [(String, UInt64)] = [
+            ("In", liveUsage.todayInputTokens),
+            ("Out", liveUsage.todayOutputTokens),
+        ]
+        for (index, row) in ioRows.enumerated() {
+            let value = formatTokensCN(row.1)
+            drawRightAligned(
+                ctx, "\(row.0)  \(value)", rightX: x + w,
+                y: py + 57 + index * 27,
+                font: ioFont, color: Color.textL)
+        }
+
+        if let weeklyWindow = stats.secondary ?? stats.primary {
+            let remaining = weeklyWindow.remainingPercent ?? 0
+            let quotaColor: CGColor = remaining > 50
+                ? Color.green : (remaining > 20 ? Color.orange : Color.red)
+            Draw.text(
+                ctx, String(format: "剩余额度 %.0f%%", remaining),
+                x: x, y: py + 133,
+                font: Fonts.system(18, weight: .semibold), color: quotaColor)
+            if let reset = weeklyWindow.resetsAt {
+                drawRightAligned(
+                    ctx, codexResetText(reset), rightX: x + w, y: py + 135,
+                    font: Fonts.system(14), color: Color.textL)
+            }
+            Draw.bar(
+                ctx, x: x, y: py + 161, w: w, h: 9,
+                percent: remaining, color: quotaColor)
+        }
 
         let cards: [(String, String)] = [
-            (formatCodexTokenCN(stats.lifetimeTokens), "累计"),
-            (formatCodexTokenCN(stats.peakDailyTokens), "峰值"),
-            (formatCodexDuration(stats.longestRunningTurnSeconds), "最长任务"),
-            ("\(stats.currentStreakDays)天", "当前连续"),
-            ("\(stats.longestStreakDays)天", "最长连续"),
+            (formatCodexTokenCN(stats.lifetimeTokens), "累计 Token"),
+            (formatCodexTokenCN(stats.peakDailyTokens), "峰值 Token"),
         ]
-        let cardW = w / cards.count
+        let cardW = w / 2
         for (index, card) in cards.enumerated() {
             let centerX = x + index * cardW + cardW / 2
             Draw.centeredText(
-                ctx, card.0, cx: centerX, y: py + 65,
-                font: Fonts.system(18, weight: .semibold), color: Color.textW)
+                ctx, card.0, cx: centerX, y: py + 196,
+                font: Fonts.system(22, weight: .semibold), color: Color.textW)
             Draw.centeredText(
-                ctx, card.1, cx: centerX, y: py + 91,
-                font: Fonts.system(12), color: Color.textL)
+                ctx, card.1, cx: centerX, y: py + 226,
+                font: Fonts.system(14), color: Color.textL)
             if index > 0 {
                 Draw.line(
                     ctx,
-                    from: CGPoint(x: x + index * cardW, y: py + 64),
-                    to: CGPoint(x: x + index * cardW, y: py + 111),
+                    from: CGPoint(x: x + index * cardW, y: py + 194),
+                    to: CGPoint(x: x + index * cardW, y: py + 242),
                     color: Color.border)
             }
         }
 
         Draw.line(
-            ctx, from: CGPoint(x: x, y: py + 125),
-            to: CGPoint(x: x + w, y: py + 125), color: Color.border)
+            ctx, from: CGPoint(x: x, y: py + 254),
+            to: CGPoint(x: x + w, y: py + 254), color: Color.border)
         Draw.text(
-            ctx, "TOKEN 活动 · 近 24 周", x: x, y: py + 140,
+            ctx, "TOKEN 活动 · 近 24 周", x: x, y: py + 270,
             font: Fonts.system(15, weight: .semibold), color: Color.textL)
-        renderCodexHeatmap(
-            ctx, x: x, y: py + 169, w: w,
-            dailyTokens: stats.dailyTokens, todayTokens: todayTokens)
-
-        Draw.line(
-            ctx, from: CGPoint(x: x, y: py + 266),
-            to: CGPoint(x: x + w, y: py + 266), color: Color.border)
-        if let weeklyWindow = stats.secondary ?? stats.primary {
-            renderCodexQuotaRow(
-                ctx, x: x, w: w, y: py + 285,
-                window: weeklyWindow, labelOverride: "一周额度")
-        }
-        Draw.line(
-            ctx, from: CGPoint(x: x, y: py + 348),
-            to: CGPoint(x: x + w, y: py + 348), color: Color.border)
-        Draw.text(
-            ctx, "剩余重置次数", x: x, y: py + 370,
-            font: Fonts.system(16), color: Color.textL)
         drawRightAligned(
-            ctx, stats.resetCreditsAvailable.map { "\($0) 次" } ?? "--",
-            rightX: x + w, y: py + 365,
-            font: Fonts.system(22, weight: .bold), color: Color.orange)
+            ctx,
+            stats.resetCreditsAvailable.map { "可重置 \($0) 次" } ?? "可重置 --",
+            rightX: x + w, y: py + 270,
+            font: Fonts.system(14), color: Color.orange)
+        renderCodexHeatmap(
+            ctx, x: x, y: py + 302, w: w,
+            dailyTokens: stats.dailyTokens, todayTokens: todayTokens)
     }
 
     private func renderCodexQuotaRow(
