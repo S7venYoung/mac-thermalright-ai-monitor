@@ -12,10 +12,11 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
 
     private let collector = SystemMetricsCollector()
     private let agentCollector = AgentUsageCollector()
-    private let keyStatsCollector = KeyStatsCollector()
+    private let keyStatsReader = KeyStatsReader()
     private let weatherCollector = WeatherCollector()
     private let calendarCollector = CalendarCollector()
     private let jdStatsCollector = JDStatsCollector()
+    private let codexTokenCollector = CodexTokenCollector()
 
     // Background metrics collection — decoupled from frame loop for consistent refresh
     private let metricsQueue = DispatchQueue(label: "com.thermalvision.metrics")
@@ -35,6 +36,7 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
     private var _weather: WeatherSnapshot?
     private var _calendar: CalendarSnapshot = .empty
     private var _jdStats: JDStatsSnapshot = .unavailable
+    private var _codexToken: CodexTokenSnapshot = .loading
     private var weatherRefreshRequested = true
     private var calendarRefreshRequested = true
     private var jdStatsRefreshRequested = true
@@ -93,10 +95,6 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
         metricsRunning = true
         lock.unlock()
         log("[Metrics] Starting collection...")
-        // KeyStats is a background accumulator. Keep it running for the whole
-        // app session so opening its panel later shows the complete day rather
-        // than only activity recorded while the panel was visible.
-        keyStatsCollector.start(requestPermission: true)
         // First pass: prime CPU ticks (deltas will be zero)
         let cpu0 = collector.collectCPU()
         let mem = collector.collectMemory()
@@ -106,7 +104,7 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
         let disk = collector.collectDisk()
         let diskIO = collector.collectDiskIO()
         let network = collector.collectNetwork()
-        let keyStats = keyStatsCollector.collect()
+        let keyStats = keyStatsReader.collect()
         lock.lock()
         _cpu = cpu0; _mem = mem
         _temp = temp; _agents = agents; _sys = sys
@@ -128,7 +126,7 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
     func stopMetrics() {
         log("[Metrics] Stopping collection")
         metricsRunning = false
-        keyStatsCollector.stop()
+        codexTokenCollector.stop()
     }
 
     func setMiddleSlots(
@@ -268,10 +266,17 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
         var calendarTick = 7200
         var jdStatsTick = 600
         while metricsRunning {
+            codexTokenCollector.refreshIfNeeded { [weak self] snapshot in
+                guard let self else { return }
+                self.lock.lock()
+                self._codexToken = snapshot
+                self.lock.unlock()
+            }
+
             // Fast metrics every tick
             let cpu = collector.collectCPU()
             let mem = collector.collectMemory()
-            let keyStats = keyStatsCollector.collect()
+            let keyStats = keyStatsReader.collect()
             lock.lock()
             _cpu = cpu; _mem = mem; _keyStats = keyStats
             lock.unlock()
@@ -444,7 +449,8 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
                           right: slots.2, agents: agents,
                           disk: disk, diskIO: diskIO, network: network,
                           tokenUsage: tokenUsage, keyStats: .demo,
-                          weather: .unavailable, jdStats: .unavailable)
+                          weather: .unavailable, jdStats: .unavailable,
+                          codexToken: .demo)
         renderMemory(ctx, mem: mem, sys: sys, agentsBusy: true)
         return ctx.makeImage()
     }
@@ -467,12 +473,14 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
         let weather: WeatherSnapshot
         let calendarSnapshot: CalendarSnapshot
         let jdStats: JDStatsSnapshot
+        let codexToken: CodexTokenSnapshot
         if demoMode {
             (cpu, mem, temp, sys, agents, disk, diskIO, network, tokenUsage) = demoData()
             keyStats = .demo
             weather = .unavailable
             calendarSnapshot = .empty
             jdStats = .unavailable
+            codexToken = .demo
         } else {
             // Read cached metrics (never blocks — uses latest available values)
             lock.lock()
@@ -491,6 +499,7 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
             weather = _weather ?? .unavailable
             calendarSnapshot = _calendar
             jdStats = _jdStats
+            codexToken = _codexToken
             lock.unlock()
         }
 
@@ -536,7 +545,7 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
                           disk: disk, diskIO: diskIO, network: network,
                           tokenUsage: tokenUsage, keyStats: keyStats,
                           weather: weather, calendarSnapshot: calendarSnapshot,
-                          jdStats: jdStats)
+                          jdStats: jdStats, codexToken: codexToken)
 
         renderMemory(ctx, mem: mem, sys: sys, agentsBusy: agentsBusy)
 
@@ -1155,7 +1164,8 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
                                    keyStats: KeyStatsSnapshot,
                                    weather: WeatherSnapshot,
                                    calendarSnapshot: CalendarSnapshot = .empty,
-                                   jdStats: JDStatsSnapshot = .unavailable) {
+                                   jdStats: JDStatsSnapshot = .unavailable,
+                                   codexToken: CodexTokenSnapshot = .loading) {
         let py = Layout.panelY
         let ph = Layout.panelHeight
 
@@ -1169,13 +1179,13 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
                 py: py, ph: ph, agents: agents, disk: disk, diskIO: diskIO,
                 network: network, tokenUsage: tokenUsage, keyStats: keyStats,
                 weather: weather, calendarSnapshot: calendarSnapshot,
-                jdStats: jdStats)
+                jdStats: jdStats, codexToken: codexToken)
         }
     }
 
     private func middleSlotAccent(_ slot: MiddleSlot) -> CGColor {
         switch slot {
-        case .codex, .disk, .keyStats, .weather, .calendar:
+        case .codex, .disk, .keyStats, .weather, .calendar, .token:
             return Color.cyan
         case .jdAlliance:
             return Color.orange
@@ -1194,7 +1204,8 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
                                   keyStats: KeyStatsSnapshot,
                                   weather: WeatherSnapshot,
                                   calendarSnapshot: CalendarSnapshot,
-                                  jdStats: JDStatsSnapshot) {
+                                  jdStats: JDStatsSnapshot,
+                                  codexToken: CodexTokenSnapshot) {
         switch slot {
         case .codex:
             renderAgentColumn(ctx, x: x, w: w, py: py,
@@ -1223,7 +1234,262 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
         case .jdAlliance:
             renderJDAllianceColumn(
                 ctx, x: x, w: w, py: py, ph: ph, stats: jdStats)
+        case .token:
+            renderCodexTokenColumn(
+                ctx, x: x, w: w, py: py, ph: ph, stats: codexToken,
+                liveUsage: agents.codex)
         }
+    }
+
+    private func renderCodexTokenColumn(
+        _ ctx: CGContext, x: Int, w: Int, py: Int, ph: Int,
+        stats: CodexTokenSnapshot, liveUsage: AgentUsage
+    ) {
+        Draw.text(
+            ctx, "CODEX TOKEN", x: x, y: py + 14,
+            font: Fonts.system(24, weight: .bold), color: Color.cyan)
+
+        guard stats.available else {
+            Draw.centeredText(
+                ctx, stats.errorMessage,
+                cx: x + w / 2, y: py + ph / 2 - 10,
+                font: Fonts.system(18), color: Color.textD)
+            return
+        }
+
+        let todayTokens = max(stats.todayTokens, liveUsage.todayTotalTokens)
+        Draw.text(
+            ctx, "今日 Token", x: x, y: py + 55,
+            font: Fonts.system(18, weight: .medium), color: Color.textL)
+        Draw.text(
+            ctx, formatTokensCN(todayTokens), x: x, y: py + 79,
+            font: Fonts.system(48, weight: .bold), color: Color.textW)
+
+        let ioFont = Fonts.system(17, weight: .semibold)
+        let ioRows: [(String, UInt64)] = [
+            ("In", liveUsage.todayInputTokens),
+            ("Out", liveUsage.todayOutputTokens),
+        ]
+        for (index, row) in ioRows.enumerated() {
+            let value = formatTokensCN(row.1)
+            drawRightAligned(
+                ctx, "\(row.0)  \(value)", rightX: x + w,
+                y: py + 57 + index * 27,
+                font: ioFont, color: Color.textL)
+        }
+
+        if let weeklyWindow = stats.secondary ?? stats.primary {
+            let remaining = weeklyWindow.remainingPercent ?? 0
+            let quotaColor: CGColor = remaining > 50
+                ? Color.green : (remaining > 20 ? Color.orange : Color.red)
+            Draw.text(
+                ctx, String(format: "剩余额度 %.0f%%", remaining),
+                x: x, y: py + 133,
+                font: Fonts.system(18, weight: .semibold), color: quotaColor)
+            if let reset = weeklyWindow.resetsAt {
+                drawRightAligned(
+                    ctx, codexResetText(reset), rightX: x + w, y: py + 135,
+                    font: Fonts.system(14), color: Color.textL)
+            }
+            Draw.bar(
+                ctx, x: x, y: py + 161, w: w, h: 9,
+                percent: remaining, color: quotaColor)
+        }
+
+        let cards: [(String, String)] = [
+            (formatCodexTokenCN(stats.lifetimeTokens), "累计 Token"),
+            (formatCodexTokenCN(stats.peakDailyTokens), "峰值 Token"),
+        ]
+        let cardW = w / 2
+        for (index, card) in cards.enumerated() {
+            let centerX = x + index * cardW + cardW / 2
+            Draw.centeredText(
+                ctx, card.0, cx: centerX, y: py + 196,
+                font: Fonts.system(25, weight: .semibold), color: Color.textW)
+            Draw.centeredText(
+                ctx, card.1, cx: centerX, y: py + 226,
+                font: Fonts.system(15), color: Color.textL)
+            if index > 0 {
+                Draw.line(
+                    ctx,
+                    from: CGPoint(x: x + index * cardW, y: py + 194),
+                    to: CGPoint(x: x + index * cardW, y: py + 242),
+                    color: Color.border)
+            }
+        }
+
+        Draw.line(
+            ctx, from: CGPoint(x: x, y: py + 254),
+            to: CGPoint(x: x + w, y: py + 254), color: Color.border)
+        Draw.text(
+            ctx, "TOKEN 活动 · 近 18 周", x: x, y: py + 272,
+            font: Fonts.system(16, weight: .semibold), color: Color.textL)
+        drawRightAligned(
+            ctx,
+            stats.resetCreditsAvailable.map { "可重置 \($0) 次" } ?? "可重置 --",
+            rightX: x + w, y: py + 273,
+            font: Fonts.system(15, weight: .semibold), color: Color.orange)
+        renderCodexHeatmap(
+            ctx, x: x, y: py + 307, w: w,
+            dailyTokens: stats.dailyTokens, todayTokens: todayTokens)
+    }
+
+    private func renderCodexQuotaRow(
+        _ ctx: CGContext, x: Int, w: Int, y: Int,
+        window: CodexQuotaWindowSnapshot, labelOverride: String? = nil
+    ) {
+        let remaining = window.remainingPercent
+        let percentText = remaining.map { String(format: "%.0f%%", $0) } ?? "--"
+        let color: CGColor
+        if let remaining {
+            color = remaining > 50
+                ? Color.green : (remaining > 20 ? Color.orange : Color.red)
+        } else {
+            color = Color.textD
+        }
+        Draw.text(
+            ctx, labelOverride ?? window.label, x: x, y: y,
+            font: Fonts.system(17, weight: .semibold), color: Color.textW)
+        Draw.text(
+            ctx, percentText, x: x + 83, y: y,
+            font: Fonts.system(17, weight: .bold), color: color)
+        if let reset = window.resetsAt {
+            drawRightAligned(
+                ctx, codexResetText(reset), rightX: x + w, y: y + 1,
+                font: Fonts.system(14), color: Color.textL)
+        }
+        renderSegmentedQuotaBar(
+            ctx, x: x, y: y + 31, w: w,
+            percent: remaining ?? 0, color: color)
+    }
+
+    private func renderSegmentedQuotaBar(
+        _ ctx: CGContext, x: Int, y: Int, w: Int,
+        percent: Double, color: CGColor
+    ) {
+        let count = 20
+        let gap = 3
+        let segmentW = max(2, (w - gap * (count - 1)) / count)
+        let filled = Int((max(0, min(100, percent)) / 100 * Double(count)).rounded())
+        for index in 0..<count {
+            let rect = CGRect(
+                x: x + index * (segmentW + gap), y: y,
+                width: segmentW, height: 10)
+            ctx.setFillColor(index < filled ? color : Color.barBG)
+            ctx.addPath(
+                CGPath(
+                    roundedRect: rect, cornerWidth: 3, cornerHeight: 3,
+                    transform: nil))
+            ctx.fillPath()
+        }
+    }
+
+    private func renderCodexHeatmap(
+        _ ctx: CGContext, x: Int, y: Int, w: Int,
+        dailyTokens: [String: UInt64], todayTokens: UInt64
+    ) {
+        let columns = 18
+        let rows = 7
+        let gap = 3
+        let cell = min(15, (w - gap * (columns - 1)) / columns)
+        let gridWidth = columns * cell + (columns - 1) * gap
+        let startX = x + max(0, (w - gridWidth) / 2)
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: Date())
+        let weekday = calendar.component(.weekday, from: today) - 1
+        let firstDay = calendar.date(
+            byAdding: .day,
+            value: -(columns - 1) * rows - weekday,
+            to: today) ?? today
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd"
+        var values = dailyTokens
+        values[formatter.string(from: today)] = max(
+            values[formatter.string(from: today)] ?? 0, todayTokens)
+        let peak = max(UInt64(1), values.values.max() ?? 1)
+
+        for column in 0..<columns {
+            for row in 0..<rows {
+                guard let date = calendar.date(
+                    byAdding: .day, value: column * rows + row,
+                    to: firstDay), date <= today else { continue }
+                let value = values[formatter.string(from: date)] ?? 0
+                let color: CGColor
+                if value == 0 {
+                    color = Color.barBG
+                } else {
+                    let ratio = sqrt(Double(value) / Double(peak))
+                    color = Color.cyan.copy(
+                        alpha: CGFloat(0.22 + ratio * 0.78)) ?? Color.cyan
+                }
+                let rect = CGRect(
+                    x: startX + column * (cell + gap),
+                    y: y + row * (cell + gap),
+                    width: cell, height: cell)
+                ctx.setFillColor(color)
+                ctx.addPath(
+                    CGPath(
+                        roundedRect: rect, cornerWidth: 3, cornerHeight: 3,
+                        transform: nil))
+                ctx.fillPath()
+            }
+        }
+    }
+
+    private func drawRightAligned(
+        _ ctx: CGContext, _ text: String, rightX: Int, y: Int,
+        font: NSFont, color: CGColor
+    ) {
+        let width = (text as NSString).size(
+            withAttributes: [.font: font]).width
+        Draw.text(
+            ctx, text, x: Int(CGFloat(rightX) - width), y: y,
+            font: font, color: color)
+    }
+
+    private func codexResetText(_ date: Date) -> String {
+        let seconds = max(0, Int(date.timeIntervalSinceNow))
+        if seconds >= 86400 {
+            return "\(seconds / 86400)天\(seconds % 86400 / 3600)小时后"
+        }
+        if seconds >= 3600 {
+            return "\(seconds / 3600)小时\(seconds % 3600 / 60)分后"
+        }
+        return "\(max(1, seconds / 60))分钟后"
+    }
+
+    private func formatCodexTokenCount(_ value: UInt64) -> String {
+        if value >= 1_000_000_000 {
+            return String(format: "%.2fB", Double(value) / 1_000_000_000)
+        }
+        if value >= 1_000_000 {
+            return String(format: "%.1fM", Double(value) / 1_000_000)
+        }
+        if value >= 1_000 {
+            return String(format: "%.1fK", Double(value) / 1_000)
+        }
+        return "\(value)"
+    }
+
+    private func formatCodexTokenCN(_ value: UInt64) -> String {
+        if value >= 100_000_000 {
+            return String(format: "%.2f亿", Double(value) / 100_000_000)
+        }
+        if value >= 10_000 {
+            return String(format: "%.1f万", Double(value) / 10_000)
+        }
+        return "\(value)"
+    }
+
+    private func formatCodexDuration(_ seconds: Int) -> String {
+        if seconds >= 3600 {
+            return "\(seconds / 3600)时\(seconds % 3600 / 60)分"
+        }
+        if seconds >= 60 {
+            return "\(seconds / 60)分\(seconds % 60)秒"
+        }
+        return "\(seconds)秒"
     }
 
     private func renderJDAllianceColumn(
@@ -1500,10 +1766,10 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
                   font: Fonts.system(24, weight: .bold), color: Color.cyan)
 
         guard stats.available else {
-            Draw.centeredText(ctx, "Allow MacTR Input Monitoring",
+            Draw.centeredText(ctx, "请先运行 keyStats",
                               cx: x + w / 2, y: py + ph / 2 - 16,
                               font: Fonts.system(20), color: Color.textD)
-            Draw.centeredText(ctx, "Then restart MacTR",
+            Draw.centeredText(ctx, "MacTR 将自动读取今日统计",
                               cx: x + w / 2, y: py + ph / 2 + 18,
                               font: Fonts.system(16), color: Color.textL)
             return

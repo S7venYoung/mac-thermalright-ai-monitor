@@ -30,6 +30,7 @@ enum MiddleSlot: String, CaseIterable, Identifiable, Sendable {
     case keyStats = "KeyStats"
     case calendar = "Calendar"
     case jdAlliance = "JD Alliance"
+    case token = "Token"
 
     var id: String { rawValue }
 
@@ -43,6 +44,7 @@ enum MiddleSlot: String, CaseIterable, Identifiable, Sendable {
         case .keyStats: "键鼠统计"
         case .calendar: "日历"
         case .jdAlliance: "京东联盟"
+        case .token: "Token 用量"
         }
     }
 }
