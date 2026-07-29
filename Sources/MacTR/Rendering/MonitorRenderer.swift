@@ -1236,13 +1236,14 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
                 ctx, x: x, w: w, py: py, ph: ph, stats: jdStats)
         case .token:
             renderCodexTokenColumn(
-                ctx, x: x, w: w, py: py, ph: ph, stats: codexToken)
+                ctx, x: x, w: w, py: py, ph: ph, stats: codexToken,
+                liveTodayTokens: agents.codex.todayTotalTokens)
         }
     }
 
     private func renderCodexTokenColumn(
         _ ctx: CGContext, x: Int, w: Int, py: Int, ph: Int,
-        stats: CodexTokenSnapshot
+        stats: CodexTokenSnapshot, liveTodayTokens: UInt64
     ) {
         Draw.text(
             ctx, "CODEX TOKEN", x: x, y: py + 14,
@@ -1256,49 +1257,70 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
             return
         }
 
-        Draw.text(
-            ctx, "今日用量", x: x, y: py + 62,
-            font: Fonts.system(17, weight: .medium), color: Color.textL)
-        Draw.text(
-            ctx, formatCodexTokenCount(stats.todayTokens),
-            x: x, y: py + 87,
-            font: Fonts.system(48, weight: .bold), color: Color.textW)
+        let todayTokens = max(stats.todayTokens, liveTodayTokens)
+        drawRightAligned(
+            ctx, "今日 \(formatCodexTokenCount(todayTokens))",
+            rightX: x + w, y: py + 19,
+            font: Fonts.system(17, weight: .semibold), color: Color.green)
 
-        Draw.line(
-            ctx, from: CGPoint(x: x, y: py + 151),
-            to: CGPoint(x: x + w, y: py + 151), color: Color.border)
-
-        let windows = [stats.primary, stats.secondary].compactMap { $0 }
-        var quotaY = py + 174
-        for window in windows.prefix(2) {
-            renderCodexQuotaRow(
-                ctx, x: x, w: w, y: quotaY, window: window)
-            quotaY += 81
+        let cards: [(String, String)] = [
+            (formatCodexTokenCN(stats.lifetimeTokens), "累计"),
+            (formatCodexTokenCN(stats.peakDailyTokens), "峰值"),
+            (formatCodexDuration(stats.longestRunningTurnSeconds), "最长任务"),
+            ("\(stats.currentStreakDays)天", "当前连续"),
+            ("\(stats.longestStreakDays)天", "最长连续"),
+        ]
+        let cardW = w / cards.count
+        for (index, card) in cards.enumerated() {
+            let centerX = x + index * cardW + cardW / 2
+            Draw.centeredText(
+                ctx, card.0, cx: centerX, y: py + 65,
+                font: Fonts.system(18, weight: .semibold), color: Color.textW)
+            Draw.centeredText(
+                ctx, card.1, cx: centerX, y: py + 91,
+                font: Fonts.system(12), color: Color.textL)
+            if index > 0 {
+                Draw.line(
+                    ctx,
+                    from: CGPoint(x: x + index * cardW, y: py + 64),
+                    to: CGPoint(x: x + index * cardW, y: py + 111),
+                    color: Color.border)
+            }
         }
 
         Draw.line(
-            ctx, from: CGPoint(x: x, y: py + 337),
-            to: CGPoint(x: x + w, y: py + 337), color: Color.border)
+            ctx, from: CGPoint(x: x, y: py + 125),
+            to: CGPoint(x: x + w, y: py + 125), color: Color.border)
+        Draw.text(
+            ctx, "TOKEN 活动 · 近 24 周", x: x, y: py + 140,
+            font: Fonts.system(15, weight: .semibold), color: Color.textL)
+        renderCodexHeatmap(
+            ctx, x: x, y: py + 169, w: w,
+            dailyTokens: stats.dailyTokens, todayTokens: todayTokens)
 
-        let lifetime = formatCodexTokenCount(stats.lifetimeTokens)
-        let peak = formatCodexTokenCount(stats.peakDailyTokens)
+        Draw.line(
+            ctx, from: CGPoint(x: x, y: py + 266),
+            to: CGPoint(x: x + w, y: py + 266), color: Color.border)
+        if let weeklyWindow = stats.secondary ?? stats.primary {
+            renderCodexQuotaRow(
+                ctx, x: x, w: w, y: py + 285,
+                window: weeklyWindow, labelOverride: "一周额度")
+        }
+        Draw.line(
+            ctx, from: CGPoint(x: x, y: py + 348),
+            to: CGPoint(x: x + w, y: py + 348), color: Color.border)
         Draw.text(
-            ctx, "累计 Token", x: x, y: py + 360,
+            ctx, "剩余重置次数", x: x, y: py + 370,
             font: Fonts.system(16), color: Color.textL)
         drawRightAligned(
-            ctx, lifetime, rightX: x + w, y: py + 356,
-            font: Fonts.system(21, weight: .bold), color: Color.cyan)
-        Draw.text(
-            ctx, "单日峰值", x: x, y: py + 400,
-            font: Fonts.system(16), color: Color.textL)
-        drawRightAligned(
-            ctx, peak, rightX: x + w, y: py + 396,
-            font: Fonts.system(21, weight: .semibold), color: Color.green)
+            ctx, stats.resetCreditsAvailable.map { "\($0) 次" } ?? "--",
+            rightX: x + w, y: py + 365,
+            font: Fonts.system(22, weight: .bold), color: Color.orange)
     }
 
     private func renderCodexQuotaRow(
         _ ctx: CGContext, x: Int, w: Int, y: Int,
-        window: CodexQuotaWindowSnapshot
+        window: CodexQuotaWindowSnapshot, labelOverride: String? = nil
     ) {
         let remaining = window.remainingPercent
         let percentText = remaining.map { String(format: "%.0f%%", $0) } ?? "--"
@@ -1310,10 +1332,10 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
             color = Color.textD
         }
         Draw.text(
-            ctx, window.label, x: x, y: y,
+            ctx, labelOverride ?? window.label, x: x, y: y,
             font: Fonts.system(17, weight: .semibold), color: Color.textW)
         Draw.text(
-            ctx, percentText, x: x + 47, y: y,
+            ctx, percentText, x: x + 83, y: y,
             font: Fonts.system(17, weight: .bold), color: color)
         if let reset = window.resetsAt {
             drawRightAligned(
@@ -1343,6 +1365,59 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
                     roundedRect: rect, cornerWidth: 3, cornerHeight: 3,
                     transform: nil))
             ctx.fillPath()
+        }
+    }
+
+    private func renderCodexHeatmap(
+        _ ctx: CGContext, x: Int, y: Int, w: Int,
+        dailyTokens: [String: UInt64], todayTokens: UInt64
+    ) {
+        let columns = 24
+        let rows = 7
+        let gap = 3
+        let cell = min(11, (w - gap * (columns - 1)) / columns)
+        let gridWidth = columns * cell + (columns - 1) * gap
+        let startX = x + max(0, (w - gridWidth) / 2)
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: Date())
+        let weekday = calendar.component(.weekday, from: today) - 1
+        let firstDay = calendar.date(
+            byAdding: .day,
+            value: -(columns - 1) * rows - weekday,
+            to: today) ?? today
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd"
+        var values = dailyTokens
+        values[formatter.string(from: today)] = max(
+            values[formatter.string(from: today)] ?? 0, todayTokens)
+        let peak = max(UInt64(1), values.values.max() ?? 1)
+
+        for column in 0..<columns {
+            for row in 0..<rows {
+                guard let date = calendar.date(
+                    byAdding: .day, value: column * rows + row,
+                    to: firstDay), date <= today else { continue }
+                let value = values[formatter.string(from: date)] ?? 0
+                let color: CGColor
+                if value == 0 {
+                    color = Color.barBG
+                } else {
+                    let ratio = sqrt(Double(value) / Double(peak))
+                    color = Color.cyan.copy(
+                        alpha: CGFloat(0.22 + ratio * 0.78)) ?? Color.cyan
+                }
+                let rect = CGRect(
+                    x: startX + column * (cell + gap),
+                    y: y + row * (cell + gap),
+                    width: cell, height: cell)
+                ctx.setFillColor(color)
+                ctx.addPath(
+                    CGPath(
+                        roundedRect: rect, cornerWidth: 3, cornerHeight: 3,
+                        transform: nil))
+                ctx.fillPath()
+            }
         }
     }
 
@@ -1379,6 +1454,26 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
             return String(format: "%.1fK", Double(value) / 1_000)
         }
         return "\(value)"
+    }
+
+    private func formatCodexTokenCN(_ value: UInt64) -> String {
+        if value >= 100_000_000 {
+            return String(format: "%.2f亿", Double(value) / 100_000_000)
+        }
+        if value >= 10_000 {
+            return String(format: "%.1f万", Double(value) / 10_000)
+        }
+        return "\(value)"
+    }
+
+    private func formatCodexDuration(_ seconds: Int) -> String {
+        if seconds >= 3600 {
+            return "\(seconds / 3600)时\(seconds % 3600 / 60)分"
+        }
+        if seconds >= 60 {
+            return "\(seconds / 60)分\(seconds % 60)秒"
+        }
+        return "\(seconds)秒"
     }
 
     private func renderJDAllianceColumn(
