@@ -56,6 +56,15 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
     ]
     private var middleRightRotation: Set<MiddleSlot> = [.network, .keyStats]
     private var middleCarouselInterval: Double = 15
+    private var appleWatchModules: [AppleWatchModule] = [
+        .token, .jdAlliance, .calendar, .weather, .network, .clock,
+    ]
+    private var appleWatchCarousels = Array(
+        repeating: false, count: AppleWatchPosition.allCases.count)
+    private var appleWatchRotations: [Set<AppleWatchModule>] = [
+        [.token], [.jdAlliance], [.calendar],
+        [.weather], [.network], [.clock],
+    ]
     private var weatherCity = "上海"
     private var caiyunToken = ""
     private var weatherLongitude = 121.4737
@@ -157,6 +166,40 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
         panelLock.lock()
         displayTheme = theme
         panelLock.unlock()
+    }
+
+    func setAppleWatchLayout(
+        modules: [AppleWatchModule], carousels: [Bool],
+        rotations: [Set<AppleWatchModule>], carouselInterval: Double
+    ) {
+        panelLock.lock()
+        if modules.count == AppleWatchPosition.allCases.count {
+            appleWatchModules = modules
+        }
+        if carousels.count == AppleWatchPosition.allCases.count {
+            appleWatchCarousels = carousels
+        }
+        if rotations.count == AppleWatchPosition.allCases.count {
+            appleWatchRotations = rotations
+        }
+        middleCarouselInterval = max(5, carouselInterval)
+        panelLock.unlock()
+    }
+
+    private func selectedAppleWatchModules() -> [AppleWatchModule] {
+        panelLock.lock()
+        defer { panelLock.unlock() }
+        return AppleWatchPosition.allCases.map { position in
+            let index = position.rawValue
+            guard appleWatchCarousels[index] else {
+                return appleWatchModules[index]
+            }
+            let choices = AppleWatchModule.allCases.filter(
+                appleWatchRotations[index].contains)
+            guard !choices.isEmpty else { return appleWatchModules[index] }
+            let step = Int(Date().timeIntervalSince1970 / middleCarouselInterval)
+            return choices[(step + index) % choices.count]
+        }
     }
 
     private func selectedDisplayTheme() -> DisplayTheme {
@@ -589,6 +632,7 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
         weather: WeatherSnapshot, calendarSnapshot: CalendarSnapshot,
         jdStats: JDStatsSnapshot, codexToken: CodexTokenSnapshot
     ) {
+        let modules = selectedAppleWatchModules()
         ctx.setFillColor(CGColor(gray: 0, alpha: 1))
         ctx.fill(CGRect(x: 0, y: 0, width: Layout.width, height: Layout.height))
 
@@ -608,14 +652,14 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
             cpu: cpu, mem: mem, temp: temp)
 
         renderAppleWatchHero(
-            ctx, slot: slots.0, x: heroX, w: heroW, py: py, ph: ph,
+            ctx, module: modules[0], x: heroX, w: heroW, py: py, ph: ph,
             agents: agents, disk: disk, diskIO: diskIO, network: network,
             keyStats: keyStats, weather: weather,
             calendarSnapshot: calendarSnapshot, jdStats: jdStats,
             codexToken: codexToken)
         renderAppleWatchDashboard(
             ctx, x: dashboardX, w: dashboardW, py: py, ph: ph,
-            topLeft: slots.1, topRight: slots.2, agents: agents,
+            modules: Array(modules[1...5]), agents: agents,
             disk: disk, diskIO: diskIO, keyStats: keyStats,
             jdStats: jdStats, calendarSnapshot: calendarSnapshot,
             weather: weather, network: network)
@@ -792,12 +836,20 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
     }
 
     private func renderAppleWatchHero(
-        _ ctx: CGContext, slot: MiddleSlot, x: Int, w: Int, py: Int, ph: Int,
+        _ ctx: CGContext, module: AppleWatchModule,
+        x: Int, w: Int, py: Int, ph: Int,
         agents: AgentsSnapshot, disk: DiskSnapshot, diskIO: DiskIOSnapshot,
         network: NetworkSnapshot, keyStats: KeyStatsSnapshot,
         weather: WeatherSnapshot, calendarSnapshot: CalendarSnapshot,
         jdStats: JDStatsSnapshot, codexToken: CodexTokenSnapshot
     ) {
+        if module == .clock {
+            drawAppleWatchSection(ctx, x: x, y: py, w: w, h: ph)
+            drawAppleWatchClockCard(
+                ctx, x: x + 24, y: py + 24, w: w - 48, h: ph - 48)
+            return
+        }
+        guard let slot = module.middleSlot else { return }
         if slot == .token {
             renderAppleWatchTokenHero(
                 ctx, x: x, w: w, py: py, ph: ph,
@@ -1015,7 +1067,7 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
 
     private func renderAppleWatchDashboard(
         _ ctx: CGContext, x: Int, w: Int, py: Int, ph: Int,
-        topLeft: MiddleSlot, topRight: MiddleSlot, agents: AgentsSnapshot,
+        modules: [AppleWatchModule], agents: AgentsSnapshot,
         disk: DiskSnapshot, diskIO: DiskIOSnapshot,
         keyStats: KeyStatsSnapshot,
         jdStats: JDStatsSnapshot, calendarSnapshot: CalendarSnapshot,
@@ -1030,35 +1082,51 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
         let halfW = (w - inset * 2 - gap) / 2
 
         drawAppleWatchCompactModule(
-            ctx, slot: topLeft, x: x + inset, y: py + 20,
+            ctx, module: modules[0], x: x + inset, y: py + 20,
             w: halfW, h: topH, agents: agents, disk: disk, diskIO: diskIO,
             network: network, keyStats: keyStats, weather: weather,
             calendarSnapshot: calendarSnapshot, jdStats: jdStats)
         drawAppleWatchCompactModule(
-            ctx, slot: topRight, x: x + inset + halfW + gap, y: py + 20,
+            ctx, module: modules[1], x: x + inset + halfW + gap, y: py + 20,
             w: halfW, h: topH, agents: agents, disk: disk, diskIO: diskIO,
             network: network, keyStats: keyStats, weather: weather,
             calendarSnapshot: calendarSnapshot, jdStats: jdStats)
 
         let thirdW = (w - inset * 2 - gap * 2) / 3
-        drawAppleWatchWeatherCard(
-            ctx, x: x + inset, y: bottomY, w: thirdW, h: bottomH,
-            weather: weather)
-        drawAppleWatchNetworkCard(
-            ctx, x: x + inset + thirdW + gap, y: bottomY,
-            w: thirdW, h: bottomH, network: network)
-        drawAppleWatchClockCard(
-            ctx, x: x + inset + (thirdW + gap) * 2, y: bottomY,
-            w: thirdW, h: bottomH)
+        for index in 0..<3 {
+            drawAppleWatchCompactModule(
+                ctx, module: modules[index + 2],
+                x: x + inset + (thirdW + gap) * index, y: bottomY,
+                w: thirdW, h: bottomH, agents: agents, disk: disk,
+                diskIO: diskIO, network: network, keyStats: keyStats,
+                weather: weather, calendarSnapshot: calendarSnapshot,
+                jdStats: jdStats)
+        }
     }
 
     private func drawAppleWatchCompactModule(
-        _ ctx: CGContext, slot: MiddleSlot, x: Int, y: Int, w: Int, h: Int,
+        _ ctx: CGContext, module: AppleWatchModule,
+        x: Int, y: Int, w: Int, h: Int,
         agents: AgentsSnapshot, disk: DiskSnapshot, diskIO: DiskIOSnapshot,
         network: NetworkSnapshot, keyStats: KeyStatsSnapshot,
         weather: WeatherSnapshot, calendarSnapshot: CalendarSnapshot,
         jdStats: JDStatsSnapshot
     ) {
+        if module == .weather {
+            drawAppleWatchWeatherCard(
+                ctx, x: x, y: y, w: w, h: h, weather: weather)
+            return
+        }
+        if module == .network {
+            drawAppleWatchNetworkCard(
+                ctx, x: x, y: y, w: w, h: h, network: network)
+            return
+        }
+        if module == .clock {
+            drawAppleWatchClockCard(ctx, x: x, y: y, w: w, h: h)
+            return
+        }
+        guard let slot = module.middleSlot else { return }
         let summary = appleWatchSummary(
             slot: slot, agents: agents, disk: disk, diskIO: diskIO,
             network: network, keyStats: keyStats, weather: weather,
@@ -1102,12 +1170,17 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
     private func fillAppleWatchCard(
         _ ctx: CGContext, x: Int, y: Int, w: Int, h: Int
     ) {
-        ctx.setFillColor(CGColor(
-            red: 28/255, green: 28/255, blue: 30/255, alpha: 1))
-        ctx.addPath(CGPath(
+        let path = CGPath(
             roundedRect: CGRect(x: x, y: y, width: w, height: h),
-            cornerWidth: 28, cornerHeight: 28, transform: nil))
+            cornerWidth: 28, cornerHeight: 28, transform: nil)
+        ctx.setFillColor(CGColor(gray: 0, alpha: 1))
+        ctx.addPath(path)
         ctx.fillPath()
+        ctx.setStrokeColor(CGColor(
+            red: 44/255, green: 44/255, blue: 46/255, alpha: 1))
+        ctx.setLineWidth(1.5)
+        ctx.addPath(path)
+        ctx.strokePath()
     }
 
     private func drawAppleWatchJDCard(
@@ -1208,8 +1281,8 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
             x: x + 18, y: y + 54,
             font: Fonts.system(48, weight: .bold), color: Color.textW)
         drawRightAligned(
-            ctx, weather.icon, rightX: x + w - 20, y: y + 46,
-            font: Fonts.system(49), color: Color.orange)
+            ctx, weather.icon, rightX: x + w - 4, y: y + 8,
+            font: Fonts.system(112), color: Color.orange)
         Draw.text(
             ctx, "\(weather.condition) · \(weather.airQuality)",
             x: x + 18, y: y + 118,
@@ -1279,9 +1352,13 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
         let cpuPercent = max(0, min(100, cpu.total))
         let memPercent = max(0, min(100, mem.percent))
         let cpuTemperature = temp.cpuTemp ?? 0
+        // Temperature is not a percentage. Map the useful 40–100°C range to
+        // the ring so a normal 60°C reading does not look like 60% danger.
+        let temperatureProgress = max(
+            0, min(100, (cpuTemperature - 40) / 60 * 100))
         drawAppleWatchRing(
             ctx, cx: cx, cy: cy, radius: 105,
-            percent: min(100, max(0, cpuTemperature)), color: Color.red,
+            percent: temperatureProgress, color: Color.red,
             background: Color.redD)
         drawAppleWatchRing(
             ctx, cx: cx, cy: cy, radius: 79,
@@ -1342,12 +1419,17 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
         title: String, value: String, detail: String, color: CGColor
     ) {
         let rect = CGRect(x: x, y: y, width: w, height: 112)
-        ctx.setFillColor(CGColor(red: 28/255, green: 28/255, blue: 30/255, alpha: 1))
-        ctx.addPath(
-            CGPath(
-                roundedRect: rect, cornerWidth: 24, cornerHeight: 24,
-                transform: nil))
+        let path = CGPath(
+            roundedRect: rect, cornerWidth: 24, cornerHeight: 24,
+            transform: nil)
+        ctx.setFillColor(CGColor(gray: 0, alpha: 1))
+        ctx.addPath(path)
         ctx.fillPath()
+        ctx.setStrokeColor(CGColor(
+            red: 44/255, green: 44/255, blue: 46/255, alpha: 1))
+        ctx.setLineWidth(1.5)
+        ctx.addPath(path)
+        ctx.strokePath()
         Draw.text(
             ctx, title, x: x + 15, y: y + 13,
             font: Fonts.system(16, weight: .semibold), color: color)
