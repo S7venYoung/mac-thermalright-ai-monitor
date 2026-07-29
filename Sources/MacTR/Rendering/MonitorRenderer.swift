@@ -607,20 +607,16 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
             ctx, x: systemX, w: systemW, py: py,
             cpu: cpu, mem: mem, temp: temp)
 
-        if slots.0 == .token {
-            renderAppleWatchTokenHero(
-                ctx, x: heroX, w: heroW, py: py, ph: ph,
-                stats: codexToken, liveUsage: agents.codex)
-        } else {
-            renderAppleWatchComplication(
-                ctx, slot: slots.0, panelX: heroX, panelW: heroW,
-                py: py, ph: ph, agents: agents, disk: disk, diskIO: diskIO,
-                network: network, tokenUsage: tokenUsage, keyStats: keyStats,
-                weather: weather, calendarSnapshot: calendarSnapshot,
-                jdStats: jdStats, codexToken: codexToken)
-        }
+        renderAppleWatchHero(
+            ctx, slot: slots.0, x: heroX, w: heroW, py: py, ph: ph,
+            agents: agents, disk: disk, diskIO: diskIO, network: network,
+            keyStats: keyStats, weather: weather,
+            calendarSnapshot: calendarSnapshot, jdStats: jdStats,
+            codexToken: codexToken)
         renderAppleWatchDashboard(
             ctx, x: dashboardX, w: dashboardW, py: py, ph: ph,
+            topLeft: slots.1, topRight: slots.2, agents: agents,
+            disk: disk, diskIO: diskIO, keyStats: keyStats,
             jdStats: jdStats, calendarSnapshot: calendarSnapshot,
             weather: weather, network: network)
 
@@ -652,6 +648,214 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
             network: network, tokenUsage: tokenUsage, keyStats: keyStats,
             weather: weather, calendarSnapshot: calendarSnapshot,
             jdStats: jdStats, codexToken: codexToken)
+    }
+
+    private struct AppleWatchModuleSummary {
+        let title: String
+        let accent: CGColor
+        let primary: String
+        let primaryLabel: String
+        let rows: [(String, String)]
+        let footer: String
+    }
+
+    private func appleWatchSummary(
+        slot: MiddleSlot, agents: AgentsSnapshot, disk: DiskSnapshot,
+        diskIO: DiskIOSnapshot, network: NetworkSnapshot,
+        keyStats: KeyStatsSnapshot, weather: WeatherSnapshot,
+        calendarSnapshot: CalendarSnapshot, jdStats: JDStatsSnapshot
+    ) -> AppleWatchModuleSummary {
+        switch slot {
+        case .codex, .claude:
+            let usage = slot == .codex ? agents.codex : agents.claude
+            let name = slot == .codex ? "CODEX" : "CLAUDE"
+            return AppleWatchModuleSummary(
+                title: name, accent: slot == .codex ? Color.cyan : Color.claude,
+                primary: formatTokensCN(usage.todayTotalTokens),
+                primaryLabel: "今日 Token",
+                rows: [
+                    ("输入", formatTokensCN(usage.todayInputTokens)),
+                    ("输出", formatTokensCN(usage.todayOutputTokens)),
+                    ("状态", usage.isWorking ? "工作中" : "空闲"),
+                ],
+                footer: usage.project ?? usage.activity ?? "暂无活动")
+        case .disk:
+            return AppleWatchModuleSummary(
+                title: "磁盘", accent: Color.cyan,
+                primary: String(format: "%.0f%%", disk.percent),
+                primaryLabel: "已使用",
+                rows: [
+                    ("已用", String(format: "%.1f GB", disk.usedGB)),
+                    ("可用", String(format: "%.1f GB", disk.freeGB)),
+                    ("读取", String(format: "%.1f MB/s", diskIO.readBytesPerSec / 1_048_576)),
+                ],
+                footer: String(format: "写入 %.1f MB/s", diskIO.writeBytesPerSec / 1_048_576))
+        case .network:
+            return AppleWatchModuleSummary(
+                title: "网络", accent: Color.purple,
+                primary: formatRate(network.rxBytesPerSec),
+                primaryLabel: "下载 MB/KB 每秒",
+                rows: [
+                    ("下载", formatRate(network.rxBytesPerSec)),
+                    ("上传", formatRate(network.txBytesPerSec)),
+                    ("状态", "实时"),
+                ],
+                footer: "网络吞吐量")
+        case .weather:
+            return AppleWatchModuleSummary(
+                title: "天气", accent: Color.cyan,
+                primary: weather.available
+                    ? "\(Int(weather.temperature.rounded()))°" : "--",
+                primaryLabel: weather.available ? weather.city : "未配置",
+                rows: [
+                    ("天气", weather.condition),
+                    ("空气", weather.airQuality),
+                    ("湿度", "\(weather.humidity)%"),
+                ],
+                footer: weather.rainForecast)
+        case .keyStats:
+            return AppleWatchModuleSummary(
+                title: "键鼠统计", accent: Color.cyan,
+                primary: compactNumber(keyStats.keyPresses),
+                primaryLabel: "今日按键",
+                rows: [
+                    ("点击", compactNumber(keyStats.totalClicks)),
+                    ("移动", String(format: "%.1f m", keyStats.mouseDistanceMeters)),
+                    ("滚动", String(format: "%.1f kPx", keyStats.scrollDistancePixels / 1000)),
+                ],
+                footer: "峰值 KPS \(keyStats.peakKPS) · CPS \(keyStats.peakCPS)")
+        case .calendar:
+            let now = Date()
+            let calendar = Calendar.current
+            let event = calendarSnapshot.events.first {
+                $0.date >= calendar.startOfDay(for: now)
+            }
+            let formatter = DateFormatter()
+            formatter.locale = Locale(identifier: "zh_CN")
+            formatter.dateFormat = "yyyy 年 M 月"
+            return AppleWatchModuleSummary(
+                title: "日历", accent: Color.cyan,
+                primary: "\(calendar.component(.day, from: now))",
+                primaryLabel: formatter.string(from: now),
+                rows: [
+                    ("星期", {
+                        let f = DateFormatter()
+                        f.locale = Locale(identifier: "zh_CN")
+                        f.dateFormat = "EEEE"
+                        return f.string(from: now)
+                    }()),
+                    ("日程", "\(calendarSnapshot.events.count) 项"),
+                    ("订阅", calendarSnapshot.subscriptionConfigured ? "已启用" : "未配置"),
+                ],
+                footer: event?.title ?? "暂无近期日程")
+        case .jdAlliance:
+            return AppleWatchModuleSummary(
+                title: "京东联盟", accent: Color.orange,
+                primary: jdStats.available ? "\(jdStats.day.orders)" : "--",
+                primaryLabel: "今日成单",
+                rows: [
+                    ("销售", formatJDMoney(jdStats.day.estimatedSales)),
+                    ("佣金", formatJDMoney(jdStats.day.estimatedCommission)),
+                    ("本月", "\(jdStats.month.orders) 单"),
+                ],
+                footer: jdStats.available ? "数据已更新" : jdStats.errorMessage)
+        case .token:
+            return AppleWatchModuleSummary(
+                title: "CODEX TOKEN", accent: Color.cyan,
+                primary: formatTokensCN(agents.codex.todayTotalTokens),
+                primaryLabel: "今日 Token",
+                rows: [
+                    ("输入", formatTokensCN(agents.codex.todayInputTokens)),
+                    ("输出", formatTokensCN(agents.codex.todayOutputTokens)),
+                    ("状态", "额度监控"),
+                ],
+                footer: "切换到主卡可查看额度和活跃度")
+        }
+    }
+
+    private func renderAppleWatchHero(
+        _ ctx: CGContext, slot: MiddleSlot, x: Int, w: Int, py: Int, ph: Int,
+        agents: AgentsSnapshot, disk: DiskSnapshot, diskIO: DiskIOSnapshot,
+        network: NetworkSnapshot, keyStats: KeyStatsSnapshot,
+        weather: WeatherSnapshot, calendarSnapshot: CalendarSnapshot,
+        jdStats: JDStatsSnapshot, codexToken: CodexTokenSnapshot
+    ) {
+        if slot == .token {
+            renderAppleWatchTokenHero(
+                ctx, x: x, w: w, py: py, ph: ph,
+                stats: codexToken, liveUsage: agents.codex)
+            return
+        }
+        let summary = appleWatchSummary(
+            slot: slot, agents: agents, disk: disk, diskIO: diskIO,
+            network: network, keyStats: keyStats, weather: weather,
+            calendarSnapshot: calendarSnapshot, jdStats: jdStats)
+        Draw.panel(ctx, x: x, y: py, w: w, h: ph, accent: summary.accent)
+        let left = x + 28
+        let right = x + w - 28
+        Draw.text(
+            ctx, summary.title.uppercased(), x: left, y: py + 17,
+            font: Fonts.system(19, weight: .bold), color: summary.accent)
+        Draw.text(
+            ctx, summary.primaryLabel, x: left, y: py + 69,
+            font: Fonts.system(19, weight: .semibold), color: Color.textS)
+        Draw.text(
+            ctx, summary.primary, x: left, y: py + 102,
+            font: Fonts.system(68, weight: .bold), color: Color.textW)
+        Draw.bar(
+            ctx, x: left, y: py + 205, w: w - 56, h: 10,
+            percent: heroProgress(slot: slot, summary: summary),
+            color: summary.accent)
+
+        let gap = 12
+        let cardW = (w - 56 - gap * 2) / 3
+        for (index, row) in summary.rows.prefix(3).enumerated() {
+            drawAppleWatchValueCard(
+                ctx, x: left + index * (cardW + gap), y: py + 246,
+                w: cardW, title: row.0, value: row.1)
+        }
+        Draw.line(
+            ctx, from: CGPoint(x: left, y: py + 344),
+            to: CGPoint(x: right, y: py + 344), color: Color.border)
+        Draw.text(
+            ctx,
+            truncate(summary.footer, font: Fonts.system(18), maxW: CGFloat(w - 56)),
+            x: left, y: py + 374,
+            font: Fonts.system(18, weight: .medium), color: Color.textS)
+    }
+
+    private func heroProgress(
+        slot: MiddleSlot, summary: AppleWatchModuleSummary
+    ) -> Double {
+        switch slot {
+        case .disk:
+            return Double(summary.primary.replacingOccurrences(
+                of: "%", with: "")) ?? 0
+        case .weather:
+            return 65
+        case .keyStats:
+            return 72
+        case .jdAlliance:
+            return 58
+        case .calendar:
+            return 50
+        case .network:
+            return 40
+        case .codex, .claude:
+            return 70
+        case .token:
+            return 0
+        }
+    }
+
+    private func compactNumber(_ value: Int) -> String {
+        if value >= 10_000 {
+            return String(format: "%.1f万", Double(value) / 10_000)
+        }
+        if value >= 1_000 {
+            return String(format: "%.1fK", Double(value) / 1_000)
+        }
+        return "\(value)"
     }
 
     private func renderAppleWatchTokenHero(
@@ -783,6 +987,9 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
 
     private func renderAppleWatchDashboard(
         _ ctx: CGContext, x: Int, w: Int, py: Int, ph: Int,
+        topLeft: MiddleSlot, topRight: MiddleSlot, agents: AgentsSnapshot,
+        disk: DiskSnapshot, diskIO: DiskIOSnapshot,
+        keyStats: KeyStatsSnapshot,
         jdStats: JDStatsSnapshot, calendarSnapshot: CalendarSnapshot,
         weather: WeatherSnapshot, network: NetworkSnapshot
     ) {
@@ -794,12 +1001,16 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
         let bottomH = 204
         let halfW = (w - inset * 2 - gap) / 2
 
-        drawAppleWatchJDCard(
-            ctx, x: x + inset, y: py + 20, w: halfW, h: topH,
-            stats: jdStats)
-        drawAppleWatchCalendarCard(
-            ctx, x: x + inset + halfW + gap, y: py + 20,
-            w: halfW, h: topH, snapshot: calendarSnapshot)
+        drawAppleWatchCompactModule(
+            ctx, slot: topLeft, x: x + inset, y: py + 20,
+            w: halfW, h: topH, agents: agents, disk: disk, diskIO: diskIO,
+            network: network, keyStats: keyStats, weather: weather,
+            calendarSnapshot: calendarSnapshot, jdStats: jdStats)
+        drawAppleWatchCompactModule(
+            ctx, slot: topRight, x: x + inset + halfW + gap, y: py + 20,
+            w: halfW, h: topH, agents: agents, disk: disk, diskIO: diskIO,
+            network: network, keyStats: keyStats, weather: weather,
+            calendarSnapshot: calendarSnapshot, jdStats: jdStats)
 
         let thirdW = (w - inset * 2 - gap * 2) / 3
         drawAppleWatchWeatherCard(
@@ -811,6 +1022,46 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
         drawAppleWatchClockCard(
             ctx, x: x + inset + (thirdW + gap) * 2, y: bottomY,
             w: thirdW, h: bottomH)
+    }
+
+    private func drawAppleWatchCompactModule(
+        _ ctx: CGContext, slot: MiddleSlot, x: Int, y: Int, w: Int, h: Int,
+        agents: AgentsSnapshot, disk: DiskSnapshot, diskIO: DiskIOSnapshot,
+        network: NetworkSnapshot, keyStats: KeyStatsSnapshot,
+        weather: WeatherSnapshot, calendarSnapshot: CalendarSnapshot,
+        jdStats: JDStatsSnapshot
+    ) {
+        let summary = appleWatchSummary(
+            slot: slot, agents: agents, disk: disk, diskIO: diskIO,
+            network: network, keyStats: keyStats, weather: weather,
+            calendarSnapshot: calendarSnapshot, jdStats: jdStats)
+        fillAppleWatchCard(ctx, x: x, y: y, w: w, h: h)
+        Draw.text(
+            ctx, summary.title, x: x + 20, y: y + 16,
+            font: Fonts.system(17, weight: .bold), color: summary.accent)
+        Draw.text(
+            ctx, summary.primary, x: x + 20, y: y + 50,
+            font: Fonts.system(45, weight: .bold), color: Color.textW)
+        drawRightAligned(
+            ctx, summary.primaryLabel, rightX: x + w - 20, y: y + 24,
+            font: Fonts.system(14), color: Color.textL)
+        if let first = summary.rows.first {
+            Draw.text(
+                ctx, "\(first.0) \(first.1)", x: x + 20, y: y + 116,
+                font: Fonts.system(15, weight: .semibold), color: Color.cyan)
+        }
+        if summary.rows.count > 1 {
+            let second = summary.rows[1]
+            drawRightAligned(
+                ctx, "\(second.0) \(second.1)", rightX: x + w - 20,
+                y: y + 116, font: Fonts.system(15, weight: .semibold),
+                color: Color.green)
+        }
+        Draw.text(
+            ctx,
+            truncate(summary.footer, font: Fonts.system(14), maxW: CGFloat(w - 40)),
+            x: x + 20, y: y + 157,
+            font: Fonts.system(14), color: Color.textL)
     }
 
     private func fillAppleWatchCard(
