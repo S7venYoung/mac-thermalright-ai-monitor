@@ -601,8 +601,8 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
         let dashboardX = 1106
         let dashboardW = 800
 
-        Draw.panel(
-            ctx, x: systemX, y: py, w: systemW, h: ph, accent: Color.cyan)
+        drawAppleWatchSection(
+            ctx, x: systemX, y: py, w: systemW, h: ph)
         renderAppleWatchSystem(
             ctx, x: systemX, w: systemW, py: py,
             cpu: cpu, mem: mem, temp: temp)
@@ -631,6 +631,23 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
         }
     }
 
+    private func drawAppleWatchSection(
+        _ ctx: CGContext, x: Int, y: Int, w: Int, h: Int
+    ) {
+        let rect = CGRect(x: x, y: y, width: w, height: h)
+        let path = CGPath(
+            roundedRect: rect, cornerWidth: 36, cornerHeight: 36,
+            transform: nil)
+        ctx.setFillColor(CGColor(gray: 0, alpha: 1))
+        ctx.addPath(path)
+        ctx.fillPath()
+        ctx.setStrokeColor(CGColor(
+            red: 44/255, green: 44/255, blue: 46/255, alpha: 1))
+        ctx.setLineWidth(1.5)
+        ctx.addPath(path)
+        ctx.strokePath()
+    }
+
     private func renderAppleWatchComplication(
         _ ctx: CGContext, slot: MiddleSlot, panelX: Int, panelW: Int,
         py: Int, ph: Int, agents: AgentsSnapshot, disk: DiskSnapshot,
@@ -639,9 +656,8 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
         weather: WeatherSnapshot, calendarSnapshot: CalendarSnapshot,
         jdStats: JDStatsSnapshot, codexToken: CodexTokenSnapshot
     ) {
-        Draw.panel(
-            ctx, x: panelX, y: py, w: panelW, h: ph,
-            accent: middleSlotAccent(slot))
+        drawAppleWatchSection(
+            ctx, x: panelX, y: py, w: panelW, h: ph)
         renderMiddleSlot(
             ctx, slot: slot, x: panelX + 20, w: panelW - 40,
             py: py, ph: ph, agents: agents, disk: disk, diskIO: diskIO,
@@ -790,7 +806,7 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
             slot: slot, agents: agents, disk: disk, diskIO: diskIO,
             network: network, keyStats: keyStats, weather: weather,
             calendarSnapshot: calendarSnapshot, jdStats: jdStats)
-        Draw.panel(ctx, x: x, y: py, w: w, h: ph, accent: summary.accent)
+        drawAppleWatchSection(ctx, x: x, y: py, w: w, h: ph)
         let left = x + 28
         let right = x + w - 28
         Draw.text(
@@ -862,7 +878,7 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
         _ ctx: CGContext, x: Int, w: Int, py: Int, ph: Int,
         stats: CodexTokenSnapshot, liveUsage: AgentUsage
     ) {
-        Draw.panel(ctx, x: x, y: py, w: w, h: ph, accent: Color.cyan)
+        drawAppleWatchSection(ctx, x: x, y: py, w: w, h: ph)
         let left = x + 28
         let right = x + w - 28
         Draw.text(
@@ -993,7 +1009,7 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
         jdStats: JDStatsSnapshot, calendarSnapshot: CalendarSnapshot,
         weather: WeatherSnapshot, network: NetworkSnapshot
     ) {
-        Draw.panel(ctx, x: x, y: py, w: w, h: ph, accent: Color.purple)
+        drawAppleWatchSection(ctx, x: x, y: py, w: w, h: ph)
         let inset = 20
         let gap = 14
         let topH = 190
