@@ -72,6 +72,19 @@ struct SettingsView: View {
                 .onChange(of: state.currentSet) {
                     state.applySettings()
                 }
+
+                Picker("界面主题", selection: $state.displayTheme) {
+                    ForEach(DisplayTheme.allCases) { theme in
+                        Text(theme.displayName).tag(theme)
+                    }
+                }
+                .onChange(of: state.displayTheme) {
+                    state.applySettings()
+                }
+
+                Text("Apple Watch 主题会继续使用下方三个栏位的固定与轮播设置。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
 
             Section("中间模块") {
