@@ -825,7 +825,7 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
                     ("本月佣金", formatJDMoney(jdStats.month.estimatedCommission)),
                 ],
                 footer: jdStats.available
-                    ? "今日销售 \(formatJDMoney(jdStats.day.estimatedSales)) · 本月 \(jdStats.month.orders) 单"
+                    ? "本月 \(jdStats.month.orders) 单"
                     : jdStats.errorMessage)
         case .token:
             return AppleWatchModuleSummary(
@@ -1145,8 +1145,20 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
         Draw.text(
             ctx, summary.primary, x: x + 20, y: y + 50,
             font: Fonts.system(45, weight: .bold), color: Color.textW)
+        if slot == .jdAlliance {
+            let valueFont = Fonts.system(45, weight: .bold)
+            let valueWidth = (summary.primary as NSString).size(
+                withAttributes: [.font: valueFont]).width
+            Draw.text(
+                ctx, "单", x: Int(CGFloat(x + 25) + valueWidth), y: y + 77,
+                font: Fonts.system(15), color: Color.textL)
+        }
         drawRightAligned(
-            ctx, summary.primaryLabel, rightX: x + w - 20, y: y + 24,
+            ctx,
+            slot == .jdAlliance
+                ? "今日销售 \(formatJDMoney(jdStats.day.estimatedSales))"
+                : summary.primaryLabel,
+            rightX: x + w - 20, y: y + 24,
             font: Fonts.system(14), color: Color.textL)
         if let first = summary.rows.first {
             Draw.text(
@@ -1169,15 +1181,13 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
                 font: Fonts.system(14, weight: .semibold),
                 color: summary.accent)
         }
-        let footerFont = slot == .calendar
-            ? Fonts.system(14, weight: .semibold)
-            : Fonts.system(12)
+        let footerFont = Fonts.system(14, weight: .semibold)
         Draw.text(
             ctx,
             truncate(summary.footer, font: footerFont, maxW: CGFloat(w - 40)),
             x: x + 20, y: y + 170,
             font: footerFont,
-            color: slot == .calendar ? summary.accent : Color.textL)
+            color: summary.accent)
     }
 
     private func fillAppleWatchCard(
@@ -1301,9 +1311,13 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
             x: x + 18, y: y + 118,
             font: Fonts.system(16, weight: .semibold), color: Color.cyan)
         Draw.text(
-            ctx, truncate(weather.rainForecast, font: Fonts.system(13), maxW: CGFloat(w - 36)),
+            ctx,
+            truncate(
+                weather.rainForecast,
+                font: Fonts.system(16, weight: .semibold),
+                maxW: CGFloat(w - 36)),
             x: x + 18, y: y + 157,
-            font: Fonts.system(13), color: Color.textL)
+            font: Fonts.system(16, weight: .semibold), color: Color.cyan)
     }
 
     private func drawAppleWatchNetworkCard(
