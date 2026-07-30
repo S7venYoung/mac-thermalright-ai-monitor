@@ -1247,9 +1247,9 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
         Draw.text(
             ctx, "今日佣金", x: rightX, y: y + 45,
             font: Fonts.system(14, weight: .semibold), color: Color.textL)
-        drawRightAligned(
+        Draw.text(
             ctx, formatJDMoney(stats.day.estimatedCommission),
-            rightX: rightEdge, y: y + 68,
+            x: rightX, y: y + 68,
             font: Fonts.system(25, weight: .bold), color: Color.green)
 
         Draw.line(
@@ -1263,9 +1263,9 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
                 ctx, "\(label)销售 \(formatJDMoney(period.estimatedSales))",
                 x: leftX, y: rowY,
                 font: Fonts.system(14, weight: .semibold), color: Color.cyan)
-            drawRightAligned(
+            Draw.text(
                 ctx, "\(label)佣金 \(formatJDMoney(period.estimatedCommission))",
-                rightX: rightEdge, y: rowY,
+                x: rightX, y: rowY,
                 font: Fonts.system(14, weight: .semibold), color: Color.green)
         }
 
