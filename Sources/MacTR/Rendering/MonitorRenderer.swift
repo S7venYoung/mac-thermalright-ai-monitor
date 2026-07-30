@@ -1379,13 +1379,65 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
         Draw.text(
             ctx, "时间", x: x + 18, y: y + 16,
             font: Fonts.system(17, weight: .bold), color: Color.green)
+
+        let now = Date()
         let formatter = DateFormatter()
-        formatter.dateFormat = "HH:mm"
+        formatter.dateFormat = "HH"
+        let hour = formatter.string(from: now)
+        formatter.dateFormat = "mm"
+        let minute = formatter.string(from: now)
+
+        let sideInset = max(18, w / 12)
+        let clockY = y + 48
+        let clockH = min(max(88, h - 112), 180)
+        let centerGap = max(22, w / 12)
+        let tileW = (w - sideInset * 2 - centerGap) / 2
+        let digitFont = Fonts.system(
+            CGFloat(min(76, max(42, clockH * 52 / 100))),
+            weight: .bold)
+
+        func flipTile(_ value: String, _ tileX: Int) {
+            let rect = CGRect(
+                x: tileX, y: clockY, width: tileW, height: clockH)
+            let path = CGPath(
+                roundedRect: rect, cornerWidth: 18, cornerHeight: 18,
+                transform: nil)
+            ctx.setFillColor(CGColor(
+                red: 12/255, green: 12/255, blue: 14/255, alpha: 1))
+            ctx.addPath(path)
+            ctx.fillPath()
+            ctx.setStrokeColor(CGColor(
+                red: 58/255, green: 58/255, blue: 62/255, alpha: 1))
+            ctx.setLineWidth(1.5)
+            ctx.addPath(path)
+            ctx.strokePath()
+            Draw.line(
+                ctx,
+                from: CGPoint(x: tileX + 8, y: clockY + clockH / 2),
+                to: CGPoint(x: tileX + tileW - 8, y: clockY + clockH / 2),
+                color: Color.border)
+            Draw.centeredText(
+                ctx, value, cx: tileX + tileW / 2,
+                y: clockY + clockH / 2 - Int(digitFont.pointSize / 2),
+                font: digitFont, color: Color.textW)
+        }
+
+        let leftTileX = x + sideInset
+        let rightTileX = leftTileX + tileW + centerGap
+        flipTile(hour, leftTileX)
+        flipTile(minute, rightTileX)
         Draw.centeredText(
-            ctx, formatter.string(from: Date()), cx: x + w / 2, y: y + 67,
-            font: Fonts.system(43, weight: .semibold), color: Color.textW)
-        Draw.centeredText(
-            ctx, "LCD 已连接", cx: x + w / 2, y: y + 151,
+            ctx, ":", cx: x + w / 2, y: clockY + clockH / 2 - 22,
+            font: Fonts.system(38, weight: .bold), color: Color.green)
+
+        formatter.locale = Locale(identifier: "zh_CN")
+        formatter.dateFormat = "M月d日 EEEE"
+        let footerY = min(y + h - 29, clockY + clockH + 15)
+        Draw.text(
+            ctx, formatter.string(from: now), x: x + sideInset, y: footerY,
+            font: Fonts.system(14, weight: .semibold), color: Color.textL)
+        drawRightAligned(
+            ctx, "LCD 已连接", rightX: x + w - sideInset, y: footerY,
             font: Fonts.system(14, weight: .semibold), color: Color.green)
     }
 
