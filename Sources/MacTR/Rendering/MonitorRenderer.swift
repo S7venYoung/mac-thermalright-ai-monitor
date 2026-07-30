@@ -1163,15 +1163,21 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
         if summary.rows.count > 2 {
             let third = summary.rows[2]
             Draw.text(
-                ctx, "\(third.0) \(third.1)", x: x + 20, y: y + 146,
+                ctx,
+                slot == .calendar ? third.1 : "\(third.0) \(third.1)",
+                x: x + 20, y: y + 146,
                 font: Fonts.system(14, weight: .semibold),
                 color: summary.accent)
         }
+        let footerFont = slot == .calendar
+            ? Fonts.system(14, weight: .semibold)
+            : Fonts.system(12)
         Draw.text(
             ctx,
-            truncate(summary.footer, font: Fonts.system(12), maxW: CGFloat(w - 40)),
+            truncate(summary.footer, font: footerFont, maxW: CGFloat(w - 40)),
             x: x + 20, y: y + 170,
-            font: Fonts.system(12), color: Color.textL)
+            font: footerFont,
+            color: slot == .calendar ? summary.accent : Color.textL)
     }
 
     private func fillAppleWatchCard(
