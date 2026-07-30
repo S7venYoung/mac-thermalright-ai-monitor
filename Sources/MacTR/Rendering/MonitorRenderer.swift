@@ -1381,77 +1381,65 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
             font: Fonts.system(17, weight: .bold), color: Color.green)
 
         let now = Date()
-        let values = Calendar.current.dateComponents(
-            [.hour, .minute, .second], from: now)
-        let hour = Double(values.hour ?? 0)
-        let minute = Double(values.minute ?? 0)
-        let second = Double(values.second ?? 0)
+        let formatter = DateFormatter()
+        formatter.dateFormat = "HH"
+        let hour = formatter.string(from: now)
+        formatter.dateFormat = "mm"
+        let minute = formatter.string(from: now)
 
-        let cx = CGFloat(x + w / 2)
-        let availableHeight = h - 54
-        let radius = CGFloat(max(
-            54, min((w - 42) / 2, availableHeight / 2)))
-        let cy = CGFloat(y + 45) + radius
-        let dialRect = CGRect(
-            x: cx - radius, y: cy - radius,
-            width: radius * 2, height: radius * 2)
+        let sideInset = max(16, w / 14)
+        let clockY = y + 48
+        let clockH = min(max(115, h - 68), 220)
+        let centerGap = max(24, w / 10)
+        let tileW = (w - sideInset * 2 - centerGap) / 2
+        let digitFont = Fonts.system(
+            CGFloat(min(112, max(72, clockH * 68 / 100))),
+            weight: .bold)
 
-        ctx.setFillColor(CGColor(gray: 0, alpha: 1))
-        ctx.fillEllipse(in: dialRect)
-        ctx.setStrokeColor(CGColor(
-            red: 58/255, green: 58/255, blue: 62/255, alpha: 1))
-        ctx.setLineWidth(2)
-        ctx.strokeEllipse(in: dialRect)
-
-        for index in 0..<60 {
-            let angle = CGFloat(index) / 60 * .pi * 2 - .pi / 2
-            let major = index % 5 == 0
-            let outer = radius - 8
-            let inner = outer - (major ? 10 : 4)
-            ctx.setStrokeColor(
-                major ? Color.textW : Color.border)
-            ctx.setLineWidth(major ? 2.5 : 1)
-            ctx.move(to: CGPoint(
-                x: cx + cos(angle) * inner,
-                y: cy + sin(angle) * inner))
-            ctx.addLine(to: CGPoint(
-                x: cx + cos(angle) * outer,
-                y: cy + sin(angle) * outer))
-            ctx.strokePath()
-        }
-
-        func hand(
-            angle: CGFloat, length: CGFloat, width: CGFloat, color: CGColor
+        func condensedCenteredText(
+            _ value: String, cx: Int, textY: Int
         ) {
-            ctx.setStrokeColor(color)
-            ctx.setLineWidth(width)
-            ctx.setLineCap(.round)
-            ctx.move(to: CGPoint(x: cx, y: cy))
-            ctx.addLine(to: CGPoint(
-                x: cx + cos(angle) * length,
-                y: cy + sin(angle) * length))
-            ctx.strokePath()
+            ctx.saveGState()
+            ctx.translateBy(x: CGFloat(cx), y: 0)
+            ctx.scaleBy(x: 0.70, y: 1)
+            Draw.centeredText(
+                ctx, value, cx: 0, y: textY,
+                font: digitFont, color: Color.textW)
+            ctx.restoreGState()
         }
 
-        let hourAngle =
-            CGFloat((hour.truncatingRemainder(dividingBy: 12) + minute / 60)
-                / 12 * .pi * 2 - .pi / 2)
-        let minuteAngle =
-            CGFloat((minute + second / 60) / 60 * .pi * 2 - .pi / 2)
-        let secondAngle = CGFloat(second / 60 * .pi * 2 - .pi / 2)
-        hand(
-            angle: hourAngle, length: radius * 0.48,
-            width: max(5, radius * 0.06), color: Color.textW)
-        hand(
-            angle: minuteAngle, length: radius * 0.70,
-            width: max(3, radius * 0.035), color: Color.textW)
-        hand(
-            angle: secondAngle, length: radius * 0.78,
-            width: 2, color: Color.green)
+        func flipTile(_ value: String, _ tileX: Int) {
+            let rect = CGRect(
+                x: tileX, y: clockY, width: tileW, height: clockH)
+            let path = CGPath(
+                roundedRect: rect, cornerWidth: 18, cornerHeight: 18,
+                transform: nil)
+            ctx.setFillColor(CGColor(gray: 0, alpha: 1))
+            ctx.addPath(path)
+            ctx.fillPath()
+            ctx.setStrokeColor(CGColor(
+                red: 58/255, green: 58/255, blue: 62/255, alpha: 1))
+            ctx.setLineWidth(1.5)
+            ctx.addPath(path)
+            ctx.strokePath()
+            Draw.line(
+                ctx,
+                from: CGPoint(x: tileX + 8, y: clockY + clockH / 2),
+                to: CGPoint(x: tileX + tileW - 8, y: clockY + clockH / 2),
+                color: Color.border)
+            condensedCenteredText(
+                value, cx: tileX + tileW / 2,
+                textY: clockY + clockH / 2 - Int(digitFont.pointSize / 2))
+        }
 
-        ctx.setFillColor(Color.green)
-        ctx.fillEllipse(in: CGRect(
-            x: cx - 5, y: cy - 5, width: 10, height: 10))
+        let leftTileX = x + sideInset
+        let rightTileX = leftTileX + tileW + centerGap
+        flipTile(hour, leftTileX)
+        flipTile(minute, rightTileX)
+        Draw.centeredText(
+            ctx, ":", cx: x + w / 2,
+            y: clockY + clockH / 2 - 25,
+            font: Fonts.system(42, weight: .bold), color: Color.green)
     }
 
     private func formatRate(_ bytesPerSecond: Double) -> String {
