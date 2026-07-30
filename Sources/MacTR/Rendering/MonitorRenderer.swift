@@ -1389,11 +1389,11 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
 
         let sideInset = max(18, w / 12)
         let clockY = y + 48
-        let clockH = min(max(88, h - 112), 180)
+        let clockH = min(max(115, h - 68), 220)
         let centerGap = max(22, w / 12)
         let tileW = (w - sideInset * 2 - centerGap) / 2
         let digitFont = Fonts.system(
-            CGFloat(min(76, max(42, clockH * 52 / 100))),
+            CGFloat(min(92, max(48, clockH * 55 / 100))),
             weight: .bold)
 
         func flipTile(_ value: String, _ tileX: Int) {
@@ -1429,16 +1429,6 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
         Draw.centeredText(
             ctx, ":", cx: x + w / 2, y: clockY + clockH / 2 - 22,
             font: Fonts.system(38, weight: .bold), color: Color.green)
-
-        formatter.locale = Locale(identifier: "zh_CN")
-        formatter.dateFormat = "M月d日 EEEE"
-        let footerY = min(y + h - 29, clockY + clockH + 15)
-        Draw.text(
-            ctx, formatter.string(from: now), x: x + sideInset, y: footerY,
-            font: Fonts.system(14, weight: .semibold), color: Color.textL)
-        drawRightAligned(
-            ctx, "LCD 已连接", rightX: x + w - sideInset, y: footerY,
-            font: Fonts.system(14, weight: .semibold), color: Color.green)
     }
 
     private func formatRate(_ bytesPerSecond: Double) -> String {
