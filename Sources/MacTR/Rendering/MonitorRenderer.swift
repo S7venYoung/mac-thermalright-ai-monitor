@@ -1133,6 +1133,11 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
             drawAppleWatchClockCard(ctx, x: x, y: y, w: w, h: h)
             return
         }
+        if module == .jdAlliance {
+            drawAppleWatchJDCard(
+                ctx, x: x, y: y, w: w, h: h, stats: jdStats)
+            return
+        }
         guard let slot = module.middleSlot else { return }
         let summary = appleWatchSummary(
             slot: slot, agents: agents, disk: disk, diskIO: diskIO,
@@ -1214,36 +1219,59 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
         Draw.text(
             ctx, "京东联盟", x: x + 20, y: y + 16,
             font: Fonts.system(17, weight: .bold), color: Color.orange)
-        drawRightAligned(
-            ctx, "今日", rightX: x + w - 20, y: y + 18,
-            font: Fonts.system(15), color: Color.textL)
         guard stats.available else {
             Draw.centeredText(
                 ctx, "暂无数据", cx: x + w / 2, y: y + 82,
                 font: Fonts.system(18), color: Color.textL)
             return
         }
+
+        let leftX = x + 20
+        let rightX = x + w / 2 + 10
+        let rightEdge = x + w - 20
+
         Draw.text(
-            ctx, "\(stats.day.orders)", x: x + 20, y: y + 48,
-            font: Fonts.system(48, weight: .bold), color: Color.textW)
+            ctx, "今日单量", x: leftX, y: y + 45,
+            font: Fonts.system(14, weight: .semibold), color: Color.textL)
+        let orderText = "\(stats.day.orders)"
+        let orderFont = Fonts.system(34, weight: .bold)
         Draw.text(
-            ctx, "单", x: x + 65, y: y + 82,
-            font: Fonts.system(16), color: Color.textL)
+            ctx, orderText, x: leftX, y: y + 65,
+            font: orderFont, color: Color.textW)
+        let orderWidth = (orderText as NSString).size(
+            withAttributes: [.font: orderFont]).width
         Draw.text(
-            ctx, "销售 \(formatJDMoney(stats.day.estimatedSales))",
-            x: x + 20, y: y + 117,
-            font: Fonts.system(15), color: Color.cyan)
-        drawRightAligned(
-            ctx, "佣金 \(formatJDMoney(stats.day.estimatedCommission))",
-            rightX: x + w - 20, y: y + 117,
-            font: Fonts.system(15), color: Color.green)
-        Draw.text(
-            ctx, "本月 \(stats.month.orders) 单", x: x + 20, y: y + 157,
+            ctx, "单", x: Int(CGFloat(leftX + 6) + orderWidth), y: y + 82,
             font: Fonts.system(14), color: Color.textL)
+
+        Draw.text(
+            ctx, "今日佣金", x: rightX, y: y + 45,
+            font: Fonts.system(14, weight: .semibold), color: Color.textL)
         drawRightAligned(
-            ctx, "佣金 \(formatJDMoney(stats.month.estimatedCommission))",
-            rightX: x + w - 20, y: y + 157,
-            font: Fonts.system(14), color: Color.textL)
+            ctx, formatJDMoney(stats.day.estimatedCommission),
+            rightX: rightEdge, y: y + 68,
+            font: Fonts.system(25, weight: .bold), color: Color.green)
+
+        Draw.line(
+            ctx, from: CGPoint(x: leftX, y: y + 108),
+            to: CGPoint(x: rightEdge, y: y + 108), color: Color.border)
+
+        func periodRow(
+            _ label: String, _ period: JDPeriodStats, _ rowY: Int
+        ) {
+            Draw.text(
+                ctx, "\(label)销售 \(formatJDMoney(period.estimatedSales))",
+                x: leftX, y: rowY,
+                font: Fonts.system(14, weight: .semibold), color: Color.cyan)
+            drawRightAligned(
+                ctx, "\(label)佣金 \(formatJDMoney(period.estimatedCommission))",
+                rightX: rightEdge, y: rowY,
+                font: Fonts.system(14, weight: .semibold), color: Color.green)
+        }
+
+        periodRow("本周", stats.week, y + 117)
+        periodRow("本月", stats.month, y + 143)
+        periodRow("本年", stats.year, y + 169)
     }
 
     private func drawAppleWatchCalendarCard(
