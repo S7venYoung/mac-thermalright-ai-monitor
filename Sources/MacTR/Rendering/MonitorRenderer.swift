@@ -2504,15 +2504,6 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
             font: Fonts.system(15), color: Color.textL)
     }
 
-    private func formatMihomoBytes(_ bytes: Int64) -> String {
-        let formatter = ByteCountFormatter()
-        formatter.allowedUnits = [.useKB, .useMB, .useGB, .useTB]
-        formatter.countStyle = .file
-        formatter.includesUnit = true
-        formatter.isAdaptive = true
-        return formatter.string(fromByteCount: max(0, bytes))
-    }
-
     private func renderCodexTokenColumn(
         _ ctx: CGContext, x: Int, w: Int, py: Int, ph: Int,
         stats: CodexTokenSnapshot, liveUsage: AgentUsage
