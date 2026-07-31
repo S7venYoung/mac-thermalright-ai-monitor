@@ -2505,39 +2505,46 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
             ctx, from: CGPoint(x: x, y: py + 158),
             to: CGPoint(x: right, y: py + 158), color: Color.border)
         let nodeFont = Fonts.system(18, weight: .semibold)
-        Draw.text(
-            ctx, "默认节点", x: x, y: py + 181,
-            font: Fonts.system(16), color: Color.textL)
-        drawRightAligned(
-            ctx,
-            truncate(snapshot.defaultNode, font: nodeFont, maxW: CGFloat(w - 105)),
-            rightX: right, y: py + 178, font: nodeFont, color: Color.cyan)
-        Draw.text(
-            ctx, "OpenAI", x: x, y: py + 225,
-            font: Fonts.system(16), color: Color.textL)
-        drawRightAligned(
-            ctx,
-            truncate(snapshot.openAINode, font: nodeFont, maxW: CGFloat(w - 90)),
-            rightX: right, y: py + 222, font: nodeFont, color: Color.green)
+        var nodeY = py + 181
+        var nodes: [(String, String, CGColor)] = [
+            ("默认节点", snapshot.defaultNode, Color.cyan),
+            ("OpenAI", snapshot.openAINode, Color.green),
+        ]
+        for name in snapshot.ruleNodes where nodes.count < 5 {
+            if name != "Default" && name != "OpenAI" {
+                nodes.append((name, "", Color.cyan))
+            }
+        }
+        for (label, value, color) in nodes {
+            Draw.text(ctx, label, x: x, y: nodeY,
+                      font: Fonts.system(16), color: Color.textL)
+            if !value.isEmpty {
+                drawRightAligned(ctx,
+                    truncate(value, font: nodeFont, maxW: CGFloat(w - 105)),
+                    rightX: right, y: nodeY - 3,
+                    font: nodeFont, color: color)
+            }
+            nodeY += 32
+        }
 
         Draw.line(
-            ctx, from: CGPoint(x: x, y: py + 270),
-            to: CGPoint(x: right, y: py + 270), color: Color.border)
+            ctx, from: CGPoint(x: x, y: py + ph - 118),
+            to: CGPoint(x: right, y: py + ph - 118), color: Color.border)
         Draw.text(
             ctx, "↓ \(formatMihomoBytes(snapshot.downloadTotal))",
-            x: x, y: py + 296,
+            x: x, y: py + ph - 92,
             font: Fonts.system(20, weight: .semibold), color: Color.green)
         drawRightAligned(
             ctx, "↑ \(formatMihomoBytes(snapshot.uploadTotal))",
-            rightX: right, y: py + 296,
+            rightX: right, y: py + ph - 92,
             font: Fonts.system(20, weight: .semibold), color: Color.orange)
         Draw.text(
-            ctx, "累计流量", x: x, y: py + 335,
+            ctx, "累计流量", x: x, y: py + ph - 53,
             font: Fonts.system(15), color: Color.textL)
         drawRightAligned(
             ctx,
             "\(snapshot.mode.uppercased()) · \(snapshot.version)",
-            rightX: right, y: py + 335,
+            rightX: right, y: py + ph - 53,
             font: Fonts.system(15), color: Color.textL)
     }
 
