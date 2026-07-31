@@ -65,7 +65,7 @@ enum MiddleSlot: String, CaseIterable, Identifiable, Sendable {
 
 enum AppleWatchModule: String, CaseIterable, Identifiable, Sendable, Codable {
     case codex, claude, token, disk, network, weather
-    case keyStats, calendar, jdAlliance, clock
+    case keyStats, calendar, jdAlliance, mihomo, clock
 
     var id: String { rawValue }
 
@@ -80,6 +80,7 @@ enum AppleWatchModule: String, CaseIterable, Identifiable, Sendable, Codable {
         case .keyStats: "键鼠统计"
         case .calendar: "日历"
         case .jdAlliance: "京东联盟"
+        case .mihomo: "N1 代理"
         case .clock: "时钟"
         }
     }
@@ -95,7 +96,7 @@ enum AppleWatchModule: String, CaseIterable, Identifiable, Sendable, Codable {
         case .keyStats: .keyStats
         case .calendar: .calendar
         case .jdAlliance: .jdAlliance
-        case .clock: nil
+        case .mihomo, .clock: nil
         }
     }
 }
@@ -221,6 +222,11 @@ final class AppState {
             ?? "https://sku.xlnk.store/api/jd/stats"
     var jdStatsToken =
         UserDefaults.standard.string(forKey: "jdStatsToken") ?? ""
+    var mihomoURL =
+        UserDefaults.standard.string(forKey: "mihomoURL")
+            ?? "http://192.168.5.25:9091"
+    var mihomoSecret =
+        UserDefaults.standard.string(forKey: "mihomoSecret") ?? ""
 
     // Metrics (for menu bar display)
     var frameCount = 0
@@ -275,7 +281,8 @@ final class AppState {
                   weatherLongitude: weatherLongitude,
                   weatherLatitude: weatherLatitude,
                   calendarSubscriptionURL: calendarSubscriptionURL,
-                  jdStatsURL: jdStatsURL, jdStatsToken: jdStatsToken)
+                  jdStatsURL: jdStatsURL, jdStatsToken: jdStatsToken,
+                  mihomoURL: mihomoURL, mihomoSecret: mihomoSecret)
     }
 
     func stop() {
@@ -338,6 +345,8 @@ final class AppState {
         UserDefaults.standard.set(weatherLatitude, forKey: "weatherLatitude")
         UserDefaults.standard.set(jdStatsURL, forKey: "jdStatsURL")
         UserDefaults.standard.set(jdStatsToken, forKey: "jdStatsToken")
+        UserDefaults.standard.set(mihomoURL, forKey: "mihomoURL")
+        UserDefaults.standard.set(mihomoSecret, forKey: "mihomoSecret")
         engine?.updateSettings(set: currentSet, theme: displayTheme,
                                middleLeft: middleLeft,
                                middleCenter: middleCenter, middleRight: middleRight,
@@ -362,7 +371,9 @@ final class AppState {
                                weatherLatitude: weatherLatitude,
                                calendarSubscriptionURL: calendarSubscriptionURL,
                                jdStatsURL: jdStatsURL,
-                               jdStatsToken: jdStatsToken)
+                               jdStatsToken: jdStatsToken,
+                               mihomoURL: mihomoURL,
+                               mihomoSecret: mihomoSecret)
     }
 
     /// Latest rendered frame for the on-Mac preview window
@@ -434,6 +445,8 @@ final class DisplayEngine: @unchecked Sendable {
     private var calendarSubscriptionURL = ""
     private var jdStatsURL = ""
     private var jdStatsToken = ""
+    private var mihomoURL = ""
+    private var mihomoSecret = ""
 
     // Renderers
     private let monitorRenderer = MonitorRenderer()
@@ -460,7 +473,8 @@ final class DisplayEngine: @unchecked Sendable {
                caiyunToken: String, weatherLongitude: Double,
                weatherLatitude: Double,
                calendarSubscriptionURL: String,
-               jdStatsURL: String, jdStatsToken: String) {
+               jdStatsURL: String, jdStatsToken: String,
+               mihomoURL: String, mihomoSecret: String) {
         appActive = true
         self.currentSet = set
         self.displayTheme = theme
@@ -490,6 +504,8 @@ final class DisplayEngine: @unchecked Sendable {
         self.calendarSubscriptionURL = calendarSubscriptionURL
         self.jdStatsURL = jdStatsURL
         self.jdStatsToken = jdStatsToken
+        self.mihomoURL = mihomoURL
+        self.mihomoSecret = mihomoSecret
         monitorRenderer.setMiddleSlots(
             left: middleLeft, center: middleCenter, right: middleRight,
             leftCarousel: middleLeftCarousel,
@@ -511,6 +527,8 @@ final class DisplayEngine: @unchecked Sendable {
             urlString: calendarSubscriptionURL)
         monitorRenderer.setJDStatsConfig(
             urlString: jdStatsURL, token: jdStatsToken)
+        monitorRenderer.setMihomoConfig(
+            urlString: mihomoURL, secret: mihomoSecret)
 
         usbQueue.async { [weak self] in
             guard let self else { return }
@@ -565,7 +583,8 @@ final class DisplayEngine: @unchecked Sendable {
                         caiyunToken: String, weatherLongitude: Double,
                         weatherLatitude: Double,
                         calendarSubscriptionURL: String,
-                        jdStatsURL: String, jdStatsToken: String) {
+                        jdStatsURL: String, jdStatsToken: String,
+                        mihomoURL: String, mihomoSecret: String) {
         log("[Engine] Settings updated: set=\(set.rawValue), theme=\(theme.rawValue), middle=\(middleLeft.rawValue)+\(middleCenter.rawValue)+\(middleRight.rawValue), brightness=\(brightness), interval=\(interval), rotate=\(rotate)")
         self.currentSet = set
         self.displayTheme = theme
@@ -595,6 +614,8 @@ final class DisplayEngine: @unchecked Sendable {
         self.calendarSubscriptionURL = calendarSubscriptionURL
         self.jdStatsURL = jdStatsURL
         self.jdStatsToken = jdStatsToken
+        self.mihomoURL = mihomoURL
+        self.mihomoSecret = mihomoSecret
         monitorRenderer.setMiddleSlots(
             left: middleLeft, center: middleCenter, right: middleRight,
             leftCarousel: middleLeftCarousel,
@@ -616,6 +637,8 @@ final class DisplayEngine: @unchecked Sendable {
             urlString: calendarSubscriptionURL)
         monitorRenderer.setJDStatsConfig(
             urlString: jdStatsURL, token: jdStatsToken)
+        monitorRenderer.setMihomoConfig(
+            urlString: mihomoURL, secret: mihomoSecret)
 
         usbQueue.async { [weak self] in
             guard let self, self.appActive, !self.running,
