@@ -11,56 +11,39 @@ enum Draw {
 
     // MARK: - Background
 
-    /// Draw vertical gradient background.
-    /// In flipped context: Y=0 is top, so bgTop at y=0, bgBot at y=height.
+    /// Classic dashboard background. Keep it pure black to match the
+    /// Apple Watch theme and improve contrast on the LCD.
     static func gradientBackground(_ ctx: CGContext) {
-        let colors = [Color.bgTop, Color.bgBot] as CFArray
-        guard let gradient = CGGradient(
-            colorsSpace: CGColorSpaceCreateDeviceRGB(),
-            colors: colors, locations: [0, 1])
-        else { return }
-
-        ctx.saveGState()
-        // Undo flip for gradient (drawLinearGradient uses native CG coords)
-        ctx.scaleBy(x: 1, y: -1)
-        ctx.translateBy(x: 0, y: -CGFloat(Layout.height))
-        ctx.drawLinearGradient(
-            gradient,
-            start: CGPoint(x: 0, y: CGFloat(Layout.height)),
-            end: CGPoint(x: 0, y: 0),
-            options: [])
-        ctx.restoreGState()
+        ctx.setFillColor(CGColor(gray: 0, alpha: 1))
+        ctx.fill(CGRect(
+            x: 0, y: 0, width: Layout.width, height: Layout.height))
     }
 
     // MARK: - Panel
 
-    /// Draw a rounded panel with accent color top bar.
+    /// Draw a pure-black rounded panel separated only by a subtle outline.
     /// Assumes flipped context (Y=0 at top).
     static func panel(_ ctx: CGContext, x: Int, y: Int, w: Int, h: Int, accent: CGColor) {
         let rect = CGRect(x: x, y: y, width: w, height: h)
         let path = CGPath(roundedRect: rect, cornerWidth: 16, cornerHeight: 16, transform: nil)
-        ctx.setFillColor(Color.panelBG)
+        ctx.setFillColor(CGColor(gray: 0, alpha: 1))
         ctx.addPath(path)
         ctx.fillPath()
 
-        // Accent bar at top (y is top in flipped coords)
-        let barRect = CGRect(x: x + 2, y: y, width: w - 4, height: 3)
-        let barPath = CGPath(roundedRect: barRect, cornerWidth: 2, cornerHeight: 2, transform: nil)
+        ctx.setStrokeColor(CGColor(
+            red: 52 / 255, green: 52 / 255, blue: 56 / 255, alpha: 1))
+        ctx.setLineWidth(1.5)
+        ctx.addPath(path)
+        ctx.strokePath()
+
+        // Keep the module accent at the top, without the old glow beneath it.
+        let barRect = CGRect(x: x + 12, y: y, width: w - 24, height: 3)
+        let barPath = CGPath(
+            roundedRect: barRect, cornerWidth: 2, cornerHeight: 2,
+            transform: nil)
         ctx.setFillColor(accent)
         ctx.addPath(barPath)
         ctx.fillPath()
-
-        // Subtle glow below accent
-        for i in 0..<6 {
-            let t = 1.0 - Double(i) / 6.0
-            let alpha = 0.12 * t
-            ctx.setStrokeColor(accent.copy(alpha: CGFloat(alpha)) ?? accent)
-            ctx.setLineWidth(1)
-            let lineY = CGFloat(y + 4 + i)
-            ctx.move(to: CGPoint(x: CGFloat(x + 2), y: lineY))
-            ctx.addLine(to: CGPoint(x: CGFloat(x + w - 2), y: lineY))
-            ctx.strokePath()
-        }
     }
 
     // MARK: - Arc Gauge
