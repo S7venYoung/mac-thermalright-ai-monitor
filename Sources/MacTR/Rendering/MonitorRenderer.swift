@@ -630,6 +630,11 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
         }
         guard let ctx = reusableCtx else { return nil }
 
+        // The frame is already rendered at the LCD's native 1920x480 size.
+        // Avoid implicit filtering so integer-aligned text and borders remain
+        // crisp when the bitmap is handed to the JPEG encoder.
+        ctx.interpolationQuality = .none
+
         // Reset transform and clear for new frame
         ctx.saveGState()
         ctx.translateBy(x: 0, y: CGFloat(h))
