@@ -1014,6 +1014,28 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
         return "\(value)"
     }
 
+    /// Draw the small, hardware-inspired agent status light used by the
+    /// Codex Token card.  The color follows the same state model as the
+    /// existing agent renderer: blue while working, amber when attention is
+    /// needed, and green when the agent is idle/ready.
+    private func drawCodexStatusLED(
+        _ ctx: CGContext, x: Int, y: Int, usage: AgentUsage
+    ) {
+        let color: CGColor
+        if usage.needsAttention {
+            color = Color.orange
+        } else if usage.isWorking {
+            color = Color.cyan
+        } else {
+            color = Color.green
+        }
+        let radius: CGFloat = 5
+        ctx.setFillColor(color)
+        ctx.fillEllipse(in: CGRect(
+            x: CGFloat(x) - radius, y: CGFloat(y) - radius,
+            width: radius * 2, height: radius * 2))
+    }
+
     private func renderAppleWatchTokenHero(
         _ ctx: CGContext, x: Int, w: Int, py: Int, ph: Int,
         stats: CodexTokenSnapshot, liveUsage: AgentUsage
@@ -1024,8 +1046,9 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
         Draw.text(
             ctx, "CODEX TOKEN", x: left, y: py + 17,
             font: Fonts.system(19, weight: .bold), color: Color.cyan)
+        drawCodexStatusLED(ctx, x: right - 8, y: py + 16, usage: liveUsage)
         drawRightAligned(
-            ctx, "已更新  ●", rightX: right, y: py + 18,
+            ctx, "已更新", rightX: right, y: py + 18,
             font: Fonts.system(14, weight: .semibold), color: Color.green)
 
         guard stats.available else {
@@ -2511,6 +2534,10 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
         Draw.text(
             ctx, "CODEX TOKEN", x: x, y: py + 14,
             font: Fonts.system(24, weight: .bold), color: Color.cyan)
+
+        // Compact simulated Codex Micro indicator.  Keep this deliberately
+        // visual-only: the LCD shows a single LED and no extra label.
+        drawCodexStatusLED(ctx, x: x + w - 12, y: py + 12, usage: liveUsage)
 
         guard stats.available else {
             Draw.centeredText(
