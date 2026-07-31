@@ -16,6 +16,7 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
     private let weatherCollector = WeatherCollector()
     private let calendarCollector = CalendarCollector()
     private let jdStatsCollector = JDStatsCollector()
+    private let mihomoCollector = MihomoCollector()
     private let codexTokenCollector = CodexTokenCollector()
 
     // Background metrics collection — decoupled from frame loop for consistent refresh
@@ -36,10 +37,12 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
     private var _weather: WeatherSnapshot?
     private var _calendar: CalendarSnapshot = .empty
     private var _jdStats: JDStatsSnapshot = .unavailable
+    private var _mihomo: MihomoSnapshot = .unavailable
     private var _codexToken: CodexTokenSnapshot = .loading
     private var weatherRefreshRequested = true
     private var calendarRefreshRequested = true
     private var jdStatsRefreshRequested = true
+    private var mihomoRefreshRequested = true
 
     // User-selected fixed middle panel
     private let panelLock = NSLock()
@@ -72,6 +75,8 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
     private var calendarSubscriptionURL = ""
     private var jdStatsURL = ""
     private var jdStatsToken = ""
+    private var mihomoURL = "http://192.168.5.25:9091"
+    private var mihomoSecret = ""
 
     // Reusable CGContext — avoids allocating 3.6MB every 0.5s (prevents CG raster data leak)
     private var reusableCtx: CGContext?
@@ -246,6 +251,29 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
         lock.unlock()
     }
 
+    func setMihomoConfig(urlString: String, secret: String) {
+        panelLock.lock()
+        mihomoURL = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
+        mihomoSecret = secret.trimmingCharacters(in: .whitespacesAndNewlines)
+        panelLock.unlock()
+        lock.lock()
+        _mihomo = .unavailable
+        mihomoRefreshRequested = true
+        lock.unlock()
+    }
+
+    private func selectedMihomoConfig() -> (url: String, secret: String) {
+        panelLock.lock()
+        defer { panelLock.unlock() }
+        return (mihomoURL, mihomoSecret)
+    }
+
+    private func currentMihomoSnapshot() -> MihomoSnapshot {
+        lock.lock()
+        defer { lock.unlock() }
+        return _mihomo
+    }
+
     private func selectedMiddleSlots() -> (MiddleSlot, MiddleSlot, MiddleSlot) {
         panelLock.lock()
         defer { panelLock.unlock() }
@@ -321,6 +349,7 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
         var weatherTick = 1200
         var calendarTick = 7200
         var jdStatsTick = 600
+        var mihomoTick = 20
         while metricsRunning {
             codexTokenCollector.refreshIfNeeded { [weak self] snapshot in
                 guard let self else { return }
@@ -406,6 +435,21 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
                 jdStatsRefreshRequested = false
                 lock.unlock()
                 jdStatsTick = 0
+            }
+
+            mihomoTick += 1
+            lock.lock()
+            let refreshMihomo = mihomoRefreshRequested
+            lock.unlock()
+            if mihomoTick >= 20 || refreshMihomo {
+                let config = selectedMihomoConfig()
+                let snapshot = mihomoCollector.collect(
+                    baseURL: config.url, secret: config.secret)
+                lock.lock()
+                _mihomo = snapshot
+                mihomoRefreshRequested = false
+                lock.unlock()
+                mihomoTick = 0
             }
 
             Thread.sleep(forTimeInterval: 0.5)
@@ -855,6 +899,13 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
                 ctx, x: x + 24, y: py + 24, w: w - 48, h: ph - 48)
             return
         }
+        if module == .mihomo {
+            drawAppleWatchSection(ctx, x: x, y: py, w: w, h: ph)
+            drawAppleWatchMihomoCard(
+                ctx, x: x + 24, y: py + 24, w: w - 48, h: ph - 48,
+                snapshot: currentMihomoSnapshot())
+            return
+        }
         guard let slot = module.middleSlot else { return }
         if slot == .token {
             renderAppleWatchTokenHero(
@@ -1138,6 +1189,12 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
                 ctx, x: x, y: y, w: w, h: h, stats: jdStats)
             return
         }
+        if module == .mihomo {
+            drawAppleWatchMihomoCard(
+                ctx, x: x, y: y, w: w, h: h,
+                snapshot: currentMihomoSnapshot())
+            return
+        }
         guard let slot = module.middleSlot else { return }
         let summary = appleWatchSummary(
             slot: slot, agents: agents, disk: disk, diskIO: diskIO,
@@ -1370,6 +1427,104 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
             ctx, formatRateWithUnit(network.txBytesPerSec),
             rightX: x + w - 18, y: y + 120,
             font: Fonts.system(26, weight: .bold), color: Color.textW)
+    }
+
+    private func drawAppleWatchMihomoCard(
+        _ ctx: CGContext, x: Int, y: Int, w: Int, h: Int,
+        snapshot: MihomoSnapshot
+    ) {
+        fillAppleWatchCard(ctx, x: x, y: y, w: w, h: h)
+        Draw.text(
+            ctx, "N1 代理", x: x + 18, y: y + 16,
+            font: Fonts.system(17, weight: .bold), color: Color.cyan)
+        drawRightAligned(
+            ctx, snapshot.available ? "● 在线" : "● 离线",
+            rightX: x + w - 18, y: y + 17,
+            font: Fonts.system(14, weight: .semibold),
+            color: snapshot.available ? Color.green : Color.red)
+
+        guard snapshot.available else {
+            Draw.centeredText(
+                ctx, snapshot.errorMessage, cx: x + w / 2, y: y + h / 2 - 10,
+                font: Fonts.system(16, weight: .medium), color: Color.textL)
+            return
+        }
+
+        let large = h > 250
+        let left = x + 18
+        let right = x + w - 18
+        Draw.text(
+            ctx, "默认节点", x: left, y: y + 49,
+            font: Fonts.system(14, weight: .semibold), color: Color.textL)
+        Draw.text(
+            ctx,
+            truncate(
+                snapshot.defaultNode,
+                font: Fonts.system(large ? 42 : 25, weight: .bold),
+                maxW: CGFloat(w - 36)),
+            x: left, y: y + 70,
+            font: Fonts.system(large ? 42 : 25, weight: .bold),
+            color: Color.textW)
+
+        let openAIY = large ? y + 133 : y + 105
+        Draw.text(
+            ctx, "OpenAI \(snapshot.openAINode)", x: left, y: openAIY,
+            font: Fonts.system(large ? 20 : 14, weight: .semibold),
+            color: Color.green)
+        let dividerY = large ? y + 174 : y + 130
+        Draw.line(
+            ctx, from: CGPoint(x: left, y: dividerY),
+            to: CGPoint(x: right, y: dividerY), color: Color.border)
+
+        if large {
+            drawAppleWatchValueCard(
+                ctx, x: left, y: y + 202, w: (w - 48) / 3,
+                title: "活动连接", value: "\(snapshot.activeConnections)")
+            drawAppleWatchValueCard(
+                ctx, x: left + (w - 48) / 3 + 6, y: y + 202,
+                w: (w - 48) / 3, title: "累计下载",
+                value: formatMihomoBytes(snapshot.downloadTotal))
+            drawAppleWatchValueCard(
+                ctx, x: left + ((w - 48) / 3 + 6) * 2, y: y + 202,
+                w: (w - 48) / 3, title: "累计上传",
+                value: formatMihomoBytes(snapshot.uploadTotal))
+            Draw.text(
+                ctx,
+                "规则模式 \(snapshot.mode.uppercased()) · 内存 \(formatMihomoBytes(snapshot.memoryBytes)) · \(snapshot.version)",
+                x: left, y: y + h - 42,
+                font: Fonts.system(16, weight: .semibold), color: Color.cyan)
+        } else {
+            Draw.text(
+                ctx, "连接 \(snapshot.activeConnections)",
+                x: left, y: y + 141,
+                font: Fonts.system(14, weight: .semibold), color: Color.cyan)
+            drawRightAligned(
+                ctx, "内存 \(formatMihomoBytes(snapshot.memoryBytes))",
+                rightX: right, y: y + 141,
+                font: Fonts.system(14, weight: .semibold), color: Color.purple)
+            Draw.text(
+                ctx, "↓ \(formatMihomoBytes(snapshot.downloadTotal))",
+                x: left, y: y + 168,
+                font: Fonts.system(14, weight: .semibold), color: Color.green)
+            drawRightAligned(
+                ctx, "↑ \(formatMihomoBytes(snapshot.uploadTotal))",
+                rightX: right, y: y + 168,
+                font: Fonts.system(14, weight: .semibold), color: Color.orange)
+        }
+    }
+
+    private func formatMihomoBytes(_ bytes: Int64) -> String {
+        let value = Double(max(0, bytes))
+        if value >= 1_099_511_627_776 {
+            return String(format: "%.1f TB", value / 1_099_511_627_776)
+        }
+        if value >= 1_073_741_824 {
+            return String(format: "%.1f GB", value / 1_073_741_824)
+        }
+        if value >= 1_048_576 {
+            return String(format: "%.1f MB", value / 1_048_576)
+        }
+        return String(format: "%.0f KB", value / 1024)
     }
 
     private func drawAppleWatchClockCard(
