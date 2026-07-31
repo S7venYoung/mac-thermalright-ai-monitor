@@ -882,6 +882,22 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
                     ("状态", "额度监控"),
                 ],
                 footer: "切换到主卡可查看额度和活跃度")
+        case .mihomo:
+            let snapshot = currentMihomoSnapshot()
+            return AppleWatchModuleSummary(
+                title: "N1 代理",
+                accent: snapshot.available ? Color.green : Color.red,
+                primary: snapshot.available
+                    ? "\(snapshot.activeConnections)" : "--",
+                primaryLabel: snapshot.available ? "活动连接" : "离线",
+                rows: [
+                    ("默认", snapshot.defaultNode),
+                    ("OpenAI", snapshot.openAINode),
+                    ("内存", formatMihomoBytes(snapshot.memoryBytes)),
+                ],
+                footer: snapshot.available
+                    ? "\(snapshot.mode.uppercased()) · \(snapshot.version)"
+                    : snapshot.errorMessage)
         }
     }
 
@@ -983,6 +999,8 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
             return 70
         case .token:
             return 0
+        case .mihomo:
+            return 65
         }
     }
 
@@ -2347,7 +2365,7 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
 
     private func middleSlotAccent(_ slot: MiddleSlot) -> CGColor {
         switch slot {
-        case .codex, .disk, .keyStats, .weather, .calendar, .token:
+        case .codex, .disk, .keyStats, .weather, .calendar, .token, .mihomo:
             return Color.cyan
         case .jdAlliance:
             return Color.orange
@@ -2400,7 +2418,99 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
             renderCodexTokenColumn(
                 ctx, x: x, w: w, py: py, ph: ph, stats: codexToken,
                 liveUsage: agents.codex)
+        case .mihomo:
+            renderMihomoColumn(
+                ctx, x: x, w: w, py: py, ph: ph,
+                snapshot: currentMihomoSnapshot())
         }
+    }
+
+    private func renderMihomoColumn(
+        _ ctx: CGContext, x: Int, w: Int, py: Int, ph: Int,
+        snapshot: MihomoSnapshot
+    ) {
+        let right = x + w
+        Draw.text(
+            ctx, "N1 PROXY", x: x, y: py + 14,
+            font: Fonts.system(24, weight: .bold), color: Color.cyan)
+        drawRightAligned(
+            ctx, snapshot.available ? "● 在线" : "● 离线",
+            rightX: right, y: py + 18,
+            font: Fonts.system(16, weight: .semibold),
+            color: snapshot.available ? Color.green : Color.red)
+
+        guard snapshot.available else {
+            Draw.centeredText(
+                ctx,
+                truncate(
+                    snapshot.errorMessage, font: Fonts.system(17),
+                    maxW: CGFloat(w)),
+                cx: x + w / 2, y: py + ph / 2 - 12,
+                font: Fonts.system(17), color: Color.textL)
+            return
+        }
+
+        Draw.text(
+            ctx, "\(snapshot.activeConnections)", x: x, y: py + 58,
+            font: Fonts.system(58, weight: .bold), color: Color.textW)
+        Draw.text(
+            ctx, "活动连接", x: x, y: py + 124,
+            font: Fonts.system(17, weight: .semibold), color: Color.textL)
+        drawRightAligned(
+            ctx, formatMihomoBytes(snapshot.memoryBytes),
+            rightX: right, y: py + 75,
+            font: Fonts.system(26, weight: .bold), color: Color.green)
+        drawRightAligned(
+            ctx, "内存占用", rightX: right, y: py + 114,
+            font: Fonts.system(15), color: Color.textL)
+
+        Draw.line(
+            ctx, from: CGPoint(x: x, y: py + 158),
+            to: CGPoint(x: right, y: py + 158), color: Color.border)
+        let nodeFont = Fonts.system(18, weight: .semibold)
+        Draw.text(
+            ctx, "默认节点", x: x, y: py + 181,
+            font: Fonts.system(16), color: Color.textL)
+        drawRightAligned(
+            ctx,
+            truncate(snapshot.defaultNode, font: nodeFont, maxW: CGFloat(w - 105)),
+            rightX: right, y: py + 178, font: nodeFont, color: Color.cyan)
+        Draw.text(
+            ctx, "OpenAI", x: x, y: py + 225,
+            font: Fonts.system(16), color: Color.textL)
+        drawRightAligned(
+            ctx,
+            truncate(snapshot.openAINode, font: nodeFont, maxW: CGFloat(w - 90)),
+            rightX: right, y: py + 222, font: nodeFont, color: Color.green)
+
+        Draw.line(
+            ctx, from: CGPoint(x: x, y: py + 270),
+            to: CGPoint(x: right, y: py + 270), color: Color.border)
+        Draw.text(
+            ctx, "↓ \(formatMihomoBytes(snapshot.downloadTotal))",
+            x: x, y: py + 296,
+            font: Fonts.system(20, weight: .semibold), color: Color.green)
+        drawRightAligned(
+            ctx, "↑ \(formatMihomoBytes(snapshot.uploadTotal))",
+            rightX: right, y: py + 296,
+            font: Fonts.system(20, weight: .semibold), color: Color.orange)
+        Draw.text(
+            ctx, "累计流量", x: x, y: py + 335,
+            font: Fonts.system(15), color: Color.textL)
+        drawRightAligned(
+            ctx,
+            "\(snapshot.mode.uppercased()) · \(snapshot.version)",
+            rightX: right, y: py + 335,
+            font: Fonts.system(15), color: Color.textL)
+    }
+
+    private func formatMihomoBytes(_ bytes: Int64) -> String {
+        let formatter = ByteCountFormatter()
+        formatter.allowedUnits = [.useKB, .useMB, .useGB, .useTB]
+        formatter.countStyle = .file
+        formatter.includesUnit = true
+        formatter.isAdaptive = true
+        return formatter.string(fromByteCount: max(0, bytes))
     }
 
     private func renderCodexTokenColumn(
