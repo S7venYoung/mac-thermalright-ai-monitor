@@ -245,6 +245,17 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
             }
 
+            Section("N1 代理") {
+                TextField("Mihomo 控制地址", text: $state.mihomoURL)
+                SecureField("Mihomo 密钥", text: $state.mihomoSecret)
+                Button("保存并刷新代理数据") {
+                    state.applySettings()
+                }
+                Text("读取 Mihomo 控制接口的节点、连接数、累计流量和内存；默认地址为 N1 的 9091 端口。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             Section("亮度") {
                 HStack {
                     Slider(value: brightnessBinding, in: 1...10, step: 1) {
