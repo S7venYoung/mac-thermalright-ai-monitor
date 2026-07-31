@@ -2512,7 +2512,7 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
         ]
         for name in snapshot.ruleNodes where nodes.count < 5 {
             if name != "Default" && name != "OpenAI" {
-                nodes.append((name, "", Color.cyan))
+                nodes.append((name, snapshot.ruleNodeValues[name] ?? "", Color.cyan))
             }
         }
         for (label, value, color) in nodes {
