@@ -103,9 +103,18 @@ enum Fonts {
 // MARK: - Brightness
 
 enum Brightness {
-    /// Brightness levels 1-10. Factor = 1.0 + (level-1) * 0.3
+    /// Brightness levels 1-10, expressed as a percentage. The old multiplier
+    /// washed colors out at every level above 1; real-device testing confirmed
+    /// level 1 (unmodified frame) is the correct look. Keep the frame at 100%
+    /// so no level ever re-applies the boost.
+    static func percent(for level: Int) -> CGFloat {
+        _ = level
+        return 100
+    }
+
+    /// Compatibility factor — always 1.0 so the source frame is never altered.
     static func factor(for level: Int) -> CGFloat {
-        let clamped = max(1, min(10, level))
-        return 1.0 + CGFloat(clamped - 1) * 0.3
+        _ = level
+        return 1.0
     }
 }
