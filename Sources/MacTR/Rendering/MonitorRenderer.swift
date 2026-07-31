@@ -1989,14 +1989,20 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
         if memoryNetworkDownload.count > 28 { memoryNetworkDownload.removeFirst() }
         if memoryNetworkUpload.count > 28 { memoryNetworkUpload.removeFirst() }
         let labelY = dividerY + 8
-        Draw.text(ctx, "Network", x: x + 16, y: labelY,
+        // Bring back the animated BongoCat in the left side of the old footer.
+        let tapPhase = Int(Date().timeIntervalSince1970 * 5) % 2 == 0
+        drawBongoCat(ctx, cx: x + 82, baseY: py + ph - 4,
+                     tapping: agentsBusy, phase: tapPhase)
+        let networkX = x + 170
+        let networkW = pw - 186
+        Draw.text(ctx, "Network", x: networkX, y: labelY,
                   font: Fonts.system(15, weight: .semibold), color: Color.textL)
-        Draw.text(ctx, String(format: "↓ %.1f MB/s", dl), x: x + 16, y: labelY + 17,
+        Draw.text(ctx, String(format: "↓ %.1f MB/s", dl), x: networkX, y: labelY + 17,
                   font: Fonts.system(14, weight: .semibold), color: Color.cyan)
         drawRightAligned(ctx, String(format: "↑ %.1f MB/s", ul), rightX: x + pw - 16,
                          y: labelY + 17, font: Fonts.system(14, weight: .semibold), color: Color.orange)
-        let chart = CGRect(x: CGFloat(x + 16), y: CGFloat(py + ph - 42),
-                           width: CGFloat(pw - 32), height: 22)
+        let chart = CGRect(x: CGFloat(networkX), y: CGFloat(py + ph - 42),
+                           width: CGFloat(networkW), height: 22)
         let peak = max(1.0, (memoryNetworkDownload + memoryNetworkUpload).max() ?? 1)
         let count = max(memoryNetworkDownload.count, 1)
         let barW = max(2, Int(chart.width) / count - 2)
