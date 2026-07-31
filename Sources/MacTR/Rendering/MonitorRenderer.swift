@@ -1053,7 +1053,9 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
         Draw.text(
             ctx, "CODEX TOKEN", x: left, y: py + 17,
             font: Fonts.system(19, weight: .bold), color: Color.cyan)
-        drawCodexStatusLED(ctx, x: right - 12, y: py + 16, usage: liveUsage)
+        // Align the LED's visual center with the CODEX TOKEN title, not its
+        // baseline, so it reads as part of the same header row.
+        drawCodexStatusLED(ctx, x: right - 12, y: py + 27, usage: liveUsage)
         drawRightAligned(
             ctx, "已更新", rightX: right, y: py + 18,
             font: Fonts.system(14, weight: .semibold), color: Color.green)
@@ -2544,7 +2546,7 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
 
         // Compact simulated Codex Micro indicator.  Keep this deliberately
         // visual-only: the LCD shows a single LED and no extra label.
-        drawCodexStatusLED(ctx, x: x + w - 12, y: py + 14, usage: liveUsage)
+        drawCodexStatusLED(ctx, x: x + w - 12, y: py + 27, usage: liveUsage)
 
         guard stats.available else {
             Draw.centeredText(
