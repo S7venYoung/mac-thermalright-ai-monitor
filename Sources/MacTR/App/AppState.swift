@@ -45,6 +45,7 @@ enum MiddleSlot: String, CaseIterable, Identifiable, Sendable {
     case calendar = "Calendar"
     case jdAlliance = "JD Alliance"
     case token = "Token"
+    case mihomo = "Mihomo"
 
     var id: String { rawValue }
 
@@ -59,6 +60,7 @@ enum MiddleSlot: String, CaseIterable, Identifiable, Sendable {
         case .calendar: "日历"
         case .jdAlliance: "京东联盟"
         case .token: "Token 用量"
+        case .mihomo: "N1 代理"
         }
     }
 }
@@ -96,7 +98,8 @@ enum AppleWatchModule: String, CaseIterable, Identifiable, Sendable, Codable {
         case .keyStats: .keyStats
         case .calendar: .calendar
         case .jdAlliance: .jdAlliance
-        case .mihomo, .clock: nil
+        case .mihomo: .mihomo
+        case .clock: nil
         }
     }
 }
@@ -135,9 +138,12 @@ final class AppState {
     var displayTheme =
         DisplayTheme(rawValue: UserDefaults.standard.string(
             forKey: "displayTheme") ?? "") ?? .classic
-    var brightness: Int = 5
-    var refreshInterval: Double = 0.5
-    var rotateDisplay: Bool = false
+    var brightness =
+        UserDefaults.standard.object(forKey: "brightness") as? Int ?? 5
+    var refreshInterval =
+        UserDefaults.standard.object(forKey: "refreshInterval") as? Double ?? 0.5
+    var rotateDisplay =
+        UserDefaults.standard.bool(forKey: "rotateDisplay")
     var screenScheduleEnabled =
         UserDefaults.standard.bool(forKey: "screenScheduleEnabled")
     var screenOffMinutes =
@@ -347,6 +353,9 @@ final class AppState {
         UserDefaults.standard.set(jdStatsToken, forKey: "jdStatsToken")
         UserDefaults.standard.set(mihomoURL, forKey: "mihomoURL")
         UserDefaults.standard.set(mihomoSecret, forKey: "mihomoSecret")
+        UserDefaults.standard.set(brightness, forKey: "brightness")
+        UserDefaults.standard.set(refreshInterval, forKey: "refreshInterval")
+        UserDefaults.standard.set(rotateDisplay, forKey: "rotateDisplay")
         engine?.updateSettings(set: currentSet, theme: displayTheme,
                                middleLeft: middleLeft,
                                middleCenter: middleCenter, middleRight: middleRight,
