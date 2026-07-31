@@ -23,9 +23,10 @@ enum JPEGEncoder {
     nonisolated(unsafe) private static var rotateCtx: CGContext?
 
     /// Encode CGImage to JPEG Data with 180° rotation and brightness adjustment.
-    /// Reduces quality if over 650KB (matches Python behavior).
+    /// Mirrors the official TRCC pipeline: encode at high quality and only step
+    /// the quality down when the frame exceeds the firmware's 450KB drop guard.
     static func encode(
-        _ image: CGImage, brightness: Int = 1, rotate: Bool = true, maxBytes: Int = 1_200_000
+        _ image: CGImage, brightness: Int = 1, rotate: Bool = true, maxBytes: Int = 450_000
     ) -> Data? {
         let w = image.width
         let h = image.height
@@ -57,26 +58,22 @@ enum JPEGEncoder {
             finalImage = image
         }
 
-        // Apply brightness if needed
-        if brightness > 1 {
-            if let brightened = applyBrightness(finalImage, level: brightness) {
-                finalImage = brightened
-            }
+        // Apply brightness if needed. The official app only ever dims by
+        // compositing black over the frame; it never boosts above 100%.
+        if let brightened = applyBrightness(finalImage, level: brightness) {
+            finalImage = brightened
         }
 
         // Encode to JPEG with quality reduction loop
-        // Keep enough JPEG quality for small LCD text and saturated status
-        // colors. The old 650KB cap often forced quality down to 0.3.
-        var quality = 0.98
-        while quality > 0.65 {
-            if let data = jpegData(from: finalImage, quality: quality) {
-                if data.count <= maxBytes || quality <= 0.3 {
-                    return data
-                }
+        let qualitySteps: [Double] = [0.95, 0.85, 0.75, 0.60, 0.45, 0.30]
+        var data: Data? = nil
+        for quality in qualitySteps {
+            data = jpegData(from: finalImage, quality: quality)
+            if let data, data.count <= maxBytes {
+                return data
             }
-            quality -= 0.05
         }
-        return jpegData(from: finalImage, quality: 0.65)
+        return data ?? jpegData(from: finalImage, quality: 0.3)
     }
 
     private static func jpegData(from image: CGImage, quality: Double) -> Data? {
@@ -93,30 +90,32 @@ enum JPEGEncoder {
         return data as Data
     }
 
-    // Reusable CIContext for brightness filter
-    nonisolated(unsafe) private static var ciCtx: CIContext?
+    // Reusable context for the dim overlay — prevents CG raster data leak.
+    nonisolated(unsafe) private static var brightnessCtx: CGContext?
 
-    /// Apply brightness using CIFilter — matches Python ImageEnhance.Brightness behavior.
-    /// PIL Brightness multiplies RGB values by factor. CIFilter.colorControls brightness
-    /// parameter is additive (-1 to 1), so we use a combination approach.
+    /// Dim by compositing semi-transparent black over the frame, matching the
+    /// official TRCC behavior. Never raises brightness above 100%.
     private static func applyBrightness(_ image: CGImage, level: Int) -> CGImage? {
-        let factor = Brightness.factor(for: level)
-        if factor <= 1.0 { return image }
+        let percent = Brightness.percent(for: level)
+        if percent >= 100 { return image }
 
-        let ciImage = CIImage(cgImage: image)
+        let w = image.width
+        let h = image.height
+        if brightnessCtx == nil || brightnessCtx!.width != w || brightnessCtx!.height != h {
+            let colorSpace = CGColorSpaceCreateDeviceRGB()
+            brightnessCtx = CGContext(
+                data: nil, width: w, height: h,
+                bitsPerComponent: 8, bytesPerRow: w * 4,
+                space: colorSpace,
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+        }
+        guard let ctx = brightnessCtx else { return nil }
 
-        // Use colorMatrix to multiply RGB by factor (same as PIL Brightness)
-        guard let filter = CIFilter(name: "CIColorMatrix") else { return nil }
-        filter.setValue(ciImage, forKey: kCIInputImageKey)
-        let f = Float(factor)
-        filter.setValue(CIVector(x: CGFloat(f), y: 0, z: 0, w: 0), forKey: "inputRVector")
-        filter.setValue(CIVector(x: 0, y: CGFloat(f), z: 0, w: 0), forKey: "inputGVector")
-        filter.setValue(CIVector(x: 0, y: 0, z: CGFloat(f), w: 0), forKey: "inputBVector")
-        filter.setValue(CIVector(x: 0, y: 0, z: 0, w: 1), forKey: "inputAVector")
-        filter.setValue(CIVector(x: 0, y: 0, z: 0, w: 0), forKey: "inputBiasVector")
-
-        guard let output = filter.outputImage else { return nil }
-        if ciCtx == nil { ciCtx = CIContext() }
-        return ciCtx!.createCGImage(output, from: output.extent)
+        ctx.clear(CGRect(x: 0, y: 0, width: w, height: h))
+        ctx.draw(image, in: CGRect(x: 0, y: 0, width: w, height: h))
+        let alpha = 1.0 - CGFloat(percent) / 100.0
+        ctx.setFillColor(CGColor(red: 0, green: 0, blue: 0, alpha: alpha))
+        ctx.fill(CGRect(x: 0, y: 0, width: w, height: h))
+        return ctx.makeImage()
     }
 }
