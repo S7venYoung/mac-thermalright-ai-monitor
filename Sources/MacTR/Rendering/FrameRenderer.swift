@@ -25,7 +25,7 @@ enum JPEGEncoder {
     /// Encode CGImage to JPEG Data with 180° rotation and brightness adjustment.
     /// Reduces quality if over 650KB (matches Python behavior).
     static func encode(
-        _ image: CGImage, brightness: Int = 1, rotate: Bool = true, maxBytes: Int = 650_000
+        _ image: CGImage, brightness: Int = 1, rotate: Bool = true, maxBytes: Int = 1_200_000
     ) -> Data? {
         let w = image.width
         let h = image.height
@@ -65,8 +65,10 @@ enum JPEGEncoder {
         }
 
         // Encode to JPEG with quality reduction loop
-        var quality = 0.9
-        while quality > 0.3 {
+        // Keep enough JPEG quality for small LCD text and saturated status
+        // colors. The old 650KB cap often forced quality down to 0.3.
+        var quality = 0.98
+        while quality > 0.65 {
             if let data = jpegData(from: finalImage, quality: quality) {
                 if data.count <= maxBytes || quality <= 0.3 {
                     return data
@@ -74,7 +76,7 @@ enum JPEGEncoder {
             }
             quality -= 0.05
         }
-        return jpegData(from: finalImage, quality: 0.3)
+        return jpegData(from: finalImage, quality: 0.65)
     }
 
     private static func jpegData(from image: CGImage, quality: Double) -> Data? {
