@@ -80,6 +80,8 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
 
     // Reusable CGContext — avoids allocating 3.6MB every 0.5s (prevents CG raster data leak)
     private var reusableCtx: CGContext?
+    private var memoryNetworkDownload: [Double] = []
+    private var memoryNetworkUpload: [Double] = []
 
     // Test mode (--test-flash): force both columns into the flashing state until
     // this deadline, to preview the alert visuals without waiting for a real event
@@ -559,7 +561,7 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
                               tokenUsage: tokenUsage, keyStats: .demo,
                               weather: .unavailable, jdStats: .unavailable,
                               codexToken: .demo)
-            renderMemory(ctx, mem: mem, sys: sys, agentsBusy: true)
+            renderMemory(ctx, mem: mem, sys: sys, network: network, agentsBusy: true)
         }
         return ctx.makeImage()
     }
@@ -664,7 +666,7 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
                               tokenUsage: tokenUsage, keyStats: keyStats,
                               weather: weather, calendarSnapshot: calendarSnapshot,
                               jdStats: jdStats, codexToken: codexToken)
-            renderMemory(ctx, mem: mem, sys: sys, agentsBusy: agentsBusy)
+            renderMemory(ctx, mem: mem, sys: sys, network: network, agentsBusy: agentsBusy)
         }
 
         let image = ctx.makeImage()
@@ -1686,10 +1688,9 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
             0, min(100, (cpuTemperature - 40) / 60 * 100))
         drawAppleWatchRing(
             ctx, cx: cx, cy: cy, radius: 105,
-            // This LCD panel renders the two red tones with the opposite
-            // perceived brightness. Swap them only for the temperature ring.
-            percent: temperatureProgress, color: Color.redD,
-            background: Color.red)
+            // Standard convention: bright foreground arc on a dark background.
+            percent: temperatureProgress, color: Color.red,
+            background: Color.redD)
         drawAppleWatchRing(
             ctx, cx: cx, cy: cy, radius: 79,
             percent: memPercent, color: Color.green,
@@ -1915,7 +1916,7 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
     // MARK: - Memory Panel
 
     private func renderMemory(_ ctx: CGContext, mem: MemorySnapshot, sys: SystemSnapshot?,
-                              agentsBusy: Bool) {
+                              network: NetworkSnapshot, agentsBusy: Bool) {
         let x = Layout.panelX(4)
         let pw = Layout.panelWidth
         let py = Layout.panelY
@@ -1973,8 +1974,8 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
             ry += 48
         }
 
-        // Bottom: a Bongo Cat tapping the divider "table", then the clock below it.
-        // (Swap monitoring removed — this space now shows the date/time.)
+        // Bottom: network throughput and a compact history chart, matching the
+        // original MacTR memory card. The clock/date area is intentionally omitted.
         let ph = Layout.panelHeight
         let dividerY = py + ph - 116
         let cx0 = x + 16
@@ -1982,41 +1983,34 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
         Draw.line(ctx, from: CGPoint(x: cx0, y: dividerY),
                   to: CGPoint(x: cx0 + cw, y: dividerY), color: Color.border)
 
-        // Bongo cat sits on the left, tapping the divider when an agent is busy
-        let t = Date().timeIntervalSince1970
-        let tapPhase = Int(t * 5) % 2 == 0
-        drawBongoCat(ctx, cx: x + 96, baseY: dividerY, tapping: agentsBusy, phase: tapPhase)
-
-        // Right of the cat: date, weekday, uptime, processes
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US")
-        let ix = x + 190
-        formatter.dateFormat = "yyyy-MM-dd"
-        Draw.text(ctx, formatter.string(from: Date()), x: ix, y: py + ph - 196,
-                  font: Fonts.system(22, weight: .semibold), color: Color.textW)
-        formatter.dateFormat = "EEEE"
-        Draw.text(ctx, formatter.string(from: Date()), x: ix, y: py + ph - 170,
-                  font: Fonts.system(16), color: Color.textS)
-
-        let iw = pw - (ix - x) - 16
-        func stat(_ label: String, _ value: String, _ sy: Int) {
-            Draw.text(ctx, label, x: ix, y: sy, font: Fonts.system(15), color: Color.textL)
-            let vf = Fonts.system(15, weight: .medium)
-            let vw = (value as NSString).size(withAttributes: [.font: vf]).width
-            Draw.text(ctx, value, x: Int(CGFloat(ix + iw) - vw), y: sy, font: vf, color: Color.textS)
+        let dl = Double(network.rxBytesPerSec) / 1_000_000
+        let ul = Double(network.txBytesPerSec) / 1_000_000
+        memoryNetworkDownload.append(dl); memoryNetworkUpload.append(ul)
+        if memoryNetworkDownload.count > 28 { memoryNetworkDownload.removeFirst() }
+        if memoryNetworkUpload.count > 28 { memoryNetworkUpload.removeFirst() }
+        let labelY = dividerY + 8
+        Draw.text(ctx, "Network", x: x + 16, y: labelY,
+                  font: Fonts.system(15, weight: .semibold), color: Color.textL)
+        Draw.text(ctx, String(format: "↓ %.1f MB/s", dl), x: x + 16, y: labelY + 17,
+                  font: Fonts.system(14, weight: .semibold), color: Color.cyan)
+        drawRightAligned(ctx, String(format: "↑ %.1f MB/s", ul), rightX: x + pw - 16,
+                         y: labelY + 17, font: Fonts.system(14, weight: .semibold), color: Color.orange)
+        let chart = CGRect(x: CGFloat(x + 16), y: CGFloat(py + ph - 42),
+                           width: CGFloat(pw - 32), height: 22)
+        let peak = max(1.0, (memoryNetworkDownload + memoryNetworkUpload).max() ?? 1)
+        let count = max(memoryNetworkDownload.count, 1)
+        let barW = max(2, Int(chart.width) / count - 2)
+        for i in 0..<memoryNetworkDownload.count {
+            let bx = Int(chart.minX) + i * (barW + 2)
+            let dh = Int(CGFloat(memoryNetworkDownload[i] / peak) * chart.height)
+            let uh = Int(CGFloat(memoryNetworkUpload[i] / peak) * chart.height)
+            ctx.setFillColor(Color.cyan)
+            ctx.fill(CGRect(x: bx, y: Int(chart.maxY) - dh,
+                            width: barW, height: max(1, dh)))
+            ctx.setFillColor(Color.orange)
+            ctx.fill(CGRect(x: bx, y: Int(chart.maxY) - dh - uh,
+                            width: barW, height: max(1, uh)))
         }
-        if let sys {
-            let h = sys.uptimeSeconds / 3600, m = (sys.uptimeSeconds % 3600) / 60
-            let up = h >= 24 ? "\(h / 24)d \(h % 24)h" : "\(h)h \(m)m"
-            stat("Uptime", up, py + ph - 142)
-            stat("Procs", "\(sys.processCount)", py + ph - 120)
-        }
-
-        // Clock — big, centered across the full panel width, below the divider
-        formatter.dateFormat = "HH:mm:ss"
-        Draw.centeredText(ctx, formatter.string(from: Date()),
-                          cx: x + pw / 2, y: dividerY + 30,
-                          font: Fonts.system(66, weight: .medium), color: Color.textW)
     }
 
     // MARK: - Bongo Cat (real line-art sprite, kuroni/bongocat-osu)
