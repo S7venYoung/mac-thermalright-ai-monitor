@@ -11,12 +11,13 @@ struct MihomoSnapshot: Sendable {
     let defaultNode: String
     let openAINode: String
     let ruleNodes: [String]
+    let ruleNodeValues: [String: String]
     let errorMessage: String
 
     static let unavailable = MihomoSnapshot(
         available: false, version: "", mode: "",
         activeConnections: 0, downloadTotal: 0, uploadTotal: 0,
-        memoryBytes: 0, defaultNode: "", openAINode: "", ruleNodes: [],
+        memoryBytes: 0, defaultNode: "", openAINode: "", ruleNodes: [], ruleNodeValues: [:],
         errorMessage: "未配置 Mihomo")
 }
 
@@ -69,22 +70,30 @@ final class MihomoCollector: @unchecked Sendable {
                 defaultNode: Self.selectedNode("Default", in: proxyMap),
                 openAINode: Self.selectedNode("OpenAI", in: proxyMap),
                 ruleNodes: Self.ruleNodes(in: proxyMap),
+                ruleNodeValues: Self.ruleNodeValues(in: proxyMap),
                 errorMessage: "")
         } catch {
             return MihomoSnapshot(
                 available: false, version: "", mode: "",
                 activeConnections: 0, downloadTotal: 0, uploadTotal: 0,
-                memoryBytes: 0, defaultNode: "", openAINode: "", ruleNodes: [],
+                memoryBytes: 0, defaultNode: "", openAINode: "", ruleNodes: [], ruleNodeValues: [:],
                 errorMessage: error.localizedDescription)
         }
     }
 
     private static func ruleNodes(in proxies: [String: Any]?) -> [String] {
         guard let proxies else { return [] }
-        let hidden = Set(["GLOBAL", "DIRECT", "REJECT", "PASS", "COMPATIBLE"])
+        let hidden = Set(["GLOBAL", "DIRECT", "REJECT", "REJECT-DROP", "PASS", "COMPATIBLE"])
         return proxies.keys.filter { !hidden.contains($0.uppercased()) }
             .filter { !$0.hasPrefix("🚀") && !$0.hasPrefix("♻") }
             .sorted()
+    }
+
+    private static func ruleNodeValues(in proxies: [String: Any]?) -> [String: String] {
+        guard let proxies else { return [:] }
+        return ruleNodes(in: proxies).reduce(into: [String: String]()) { result, name in
+            result[name] = selectedNode(name, in: proxies)
+        }
     }
 
     private func requestJSON(
