@@ -1023,13 +1023,20 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
     ) {
         let color: CGColor
         if usage.needsAttention {
+            // Official Codex Micro palette: waiting for approval = yellow.
             color = Color.orange
         } else if usage.isWorking {
-            color = Color.cyan
+            // Thinking / running = blue.
+            color = Color.blue
+        } else if !usage.available {
+            // No session/error data available.
+            color = Color.red
         } else {
-            color = Color.green
+            // Completed / idle-ready.
+            color = Color.textW
         }
-        let radius: CGFloat = 5
+        // Large enough to read at LCD distance and visually balance the title.
+        let radius: CGFloat = 9
         ctx.setFillColor(color)
         ctx.fillEllipse(in: CGRect(
             x: CGFloat(x) - radius, y: CGFloat(y) - radius,
@@ -1046,7 +1053,7 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
         Draw.text(
             ctx, "CODEX TOKEN", x: left, y: py + 17,
             font: Fonts.system(19, weight: .bold), color: Color.cyan)
-        drawCodexStatusLED(ctx, x: right - 8, y: py + 16, usage: liveUsage)
+        drawCodexStatusLED(ctx, x: right - 12, y: py + 16, usage: liveUsage)
         drawRightAligned(
             ctx, "已更新", rightX: right, y: py + 18,
             font: Fonts.system(14, weight: .semibold), color: Color.green)
@@ -2537,7 +2544,7 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
 
         // Compact simulated Codex Micro indicator.  Keep this deliberately
         // visual-only: the LCD shows a single LED and no extra label.
-        drawCodexStatusLED(ctx, x: x + w - 12, y: py + 12, usage: liveUsage)
+        drawCodexStatusLED(ctx, x: x + w - 12, y: py + 14, usage: liveUsage)
 
         guard stats.available else {
             Draw.centeredText(
