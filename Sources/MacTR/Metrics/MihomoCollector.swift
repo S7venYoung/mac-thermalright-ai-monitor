@@ -10,12 +10,13 @@ struct MihomoSnapshot: Sendable {
     let memoryBytes: Int64
     let defaultNode: String
     let openAINode: String
+    let ruleNodes: [String]
     let errorMessage: String
 
     static let unavailable = MihomoSnapshot(
         available: false, version: "", mode: "",
         activeConnections: 0, downloadTotal: 0, uploadTotal: 0,
-        memoryBytes: 0, defaultNode: "", openAINode: "",
+        memoryBytes: 0, defaultNode: "", openAINode: "", ruleNodes: [],
         errorMessage: "未配置 Mihomo")
 }
 
@@ -67,14 +68,23 @@ final class MihomoCollector: @unchecked Sendable {
                 memoryBytes: Self.int64(connections["memory"]),
                 defaultNode: Self.selectedNode("Default", in: proxyMap),
                 openAINode: Self.selectedNode("OpenAI", in: proxyMap),
+                ruleNodes: Self.ruleNodes(in: proxyMap),
                 errorMessage: "")
         } catch {
             return MihomoSnapshot(
                 available: false, version: "", mode: "",
                 activeConnections: 0, downloadTotal: 0, uploadTotal: 0,
-                memoryBytes: 0, defaultNode: "", openAINode: "",
+                memoryBytes: 0, defaultNode: "", openAINode: "", ruleNodes: [],
                 errorMessage: error.localizedDescription)
         }
+    }
+
+    private static func ruleNodes(in proxies: [String: Any]?) -> [String] {
+        guard let proxies else { return [] }
+        let hidden = Set(["GLOBAL", "DIRECT", "REJECT", "PASS", "COMPATIBLE"])
+        return proxies.keys.filter { !hidden.contains($0.uppercased()) }
+            .filter { !$0.hasPrefix("🚀") && !$0.hasPrefix("♻") }
+            .sorted()
     }
 
     private func requestJSON(
