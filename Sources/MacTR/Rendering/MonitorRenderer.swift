@@ -1989,12 +1989,13 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
         if memoryNetworkDownload.count > 28 { memoryNetworkDownload.removeFirst() }
         if memoryNetworkUpload.count > 28 { memoryNetworkUpload.removeFirst() }
         let labelY = dividerY + 8
-        // Bring back the animated BongoCat in the left side of the old footer.
+        // Restore BongoCat to its original left-side footer position.
         let tapPhase = Int(Date().timeIntervalSince1970 * 5) % 2 == 0
-        drawBongoCat(ctx, cx: x + 82, baseY: py + ph - 4,
+        drawBongoCat(ctx, cx: x + 96, baseY: dividerY,
                      tapping: agentsBusy, phase: tapPhase)
-        let networkX = x + 170
-        let networkW = pw - 186
+        // The network section fills the complete width below the cat.
+        let networkX = x + 16
+        let networkW = pw - 32
         Draw.text(ctx, "Network", x: networkX, y: labelY,
                   font: Fonts.system(15, weight: .semibold), color: Color.textL)
         Draw.text(ctx, String(format: "↓ %.1f MB/s", dl), x: networkX, y: labelY + 17,
