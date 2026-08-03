@@ -158,12 +158,8 @@ final class SystemMetricsCollector: @unchecked Sendable {
         var loadavg: [Double] = [0, 0, 0]
         getloadavg(&loadavg, 3)
 
-        // P-core count via sysctl (Apple Silicon)
-        var pCores: Int32 = 0
-        var pSize = MemoryLayout<Int32>.size
-        sysctlbyname("hw.perflevel0.logicalcpu", &pCores, &pSize, nil, 0)
-        // If sysctl fails (Intel), assume all cores are P-cores
-        let pCount = pCores > 0 ? Int(pCores) : perCore.count
+        // Resolve the P-core count from the hardware topology, not an assumed offset.
+        let pCount = CoreTopology.pCoreCount > 0 ? CoreTopology.pCoreCount : perCore.count
 
         return CPUSnapshot(
             perCore: perCore, total: total,
