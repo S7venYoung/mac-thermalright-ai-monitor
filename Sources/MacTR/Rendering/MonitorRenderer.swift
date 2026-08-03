@@ -28,7 +28,8 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
     private var _cpu: CPUSnapshot?
     private var _mem: MemorySnapshot?
     private var _temp: TemperatureSnapshot?
-    private var _agents: AgentsSnapshot?\n    private var lastAgentsSnapshot: AgentsSnapshot?
+    private var _agents: AgentsSnapshot?
+    private var lastAgentsSnapshot: AgentsSnapshot?
     private var _sys: SystemSnapshot?
     private var _disk: DiskSnapshot?
     private var _diskIO: DiskIOSnapshot?
