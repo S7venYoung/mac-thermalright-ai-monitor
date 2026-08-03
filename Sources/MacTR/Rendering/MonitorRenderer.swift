@@ -1122,7 +1122,7 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
             font: Fonts.system(16, weight: .semibold), color: Color.textL)
         drawRightAligned(
             ctx,
-            stats.resetCreditsAvailable.map { "可重置 \($0) 次" } ?? "可重置 --",
+            stats.resetCreditsAvailable.map { "可重置 \($0) 次" } ?? "可重置 0 次",
             rightX: right, y: py + 259,
             font: Fonts.system(15, weight: .semibold), color: Color.orange)
         renderAppleWatchHeatStrip(
@@ -2639,7 +2639,7 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
             font: Fonts.system(16, weight: .semibold), color: Color.textL)
         drawRightAligned(
             ctx,
-            stats.resetCreditsAvailable.map { "可重置 \($0) 次" } ?? "可重置 --",
+            stats.resetCreditsAvailable.map { "可重置 \($0) 次" } ?? "可重置 0 次",
             rightX: x + w, y: py + 273,
             font: Fonts.system(15, weight: .semibold), color: Color.orange)
         renderCodexHeatmap(
