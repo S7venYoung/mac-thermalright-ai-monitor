@@ -1,3 +1,4 @@
+// v1.3.15 adaptive scan pacing
 import Foundation
 
 /// Adaptive pacing for the expensive filesystem/process-backed scans.
