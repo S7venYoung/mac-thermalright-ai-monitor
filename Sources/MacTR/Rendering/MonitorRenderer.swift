@@ -27,7 +27,8 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
     private var _cpu: CPUSnapshot?
     private var _mem: MemorySnapshot?
     private var _temp: TemperatureSnapshot?
-    private var _agents: AgentsSnapshot?\n    private var lastAgentsSnapshot: AgentsSnapshot?
+    private var _agents: AgentsSnapshot?
+    private var lastAgentsSnapshot: AgentsSnapshot?
     private var _sys: SystemSnapshot?
     private var _disk: DiskSnapshot?
     private var _diskIO: DiskIOSnapshot?
@@ -1280,6 +1281,14 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
                 ctx, x: x, w: w, py: py, ph: ph,
                 snapshot: currentMihomoSnapshot())
         }
+    }
+
+    private func drawRightAligned(
+        _ ctx: CGContext, _ text: String, rightX: Int, y: Int,
+        font: NSFont, color: CGColor
+    ) {
+        let width = (text as NSString).size(withAttributes: [.font: font]).width
+        Draw.text(ctx, text, x: rightX - Int(width), y: y, font: font, color: color)
     }
 
     private func renderMihomoColumn(
