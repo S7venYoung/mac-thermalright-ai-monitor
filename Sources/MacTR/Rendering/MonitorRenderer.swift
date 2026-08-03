@@ -1805,28 +1805,20 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
         let spacing = min(36, (bottomLimit - py - 18) / max(coreCount, 1))
         let startY = py + 18 + spacing / 2  // shifted down half a row
 
-        let pCoreCount = cpu.pCoreCount
-        let eCoreCount = coreCount - pCoreCount
+        let topologyRows = CoreTopology.displayRows()
 
-        // Reorder: E-cores first, then P-cores
+        // Display E-cores first, then P-cores, while reading the actual logical
+        // CPU index supplied by the device-tree topology.
         for row in 0..<coreCount {
             let by = startY + row * spacing
             if by + Int(fontSize) > bottomLimit { break }
 
-            let coreIndex: Int
-            let isECore: Bool
-            let label: String
-            if row < eCoreCount {
-                // E-core rows first
-                coreIndex = pCoreCount + row
-                isECore = true
-                label = "E\(row + 1)"
-            } else {
-                // P-core rows after
-                coreIndex = row - eCoreCount
-                isECore = false
-                label = "P\(row - eCoreCount + 1)"
-            }
+            let mapped = row < topologyRows.count
+                ? topologyRows[row]
+                : (index: row, label: "C\(row + 1)", isEfficiency: true)
+            let coreIndex = mapped.index
+            let isECore = mapped.isEfficiency
+            let label = mapped.label
 
             let pct = coreIndex < cpu.perCore.count ? cpu.perCore[coreIndex] : 0
             let barColor = isECore ? Color.cyan : Color.forPercent(pct)
