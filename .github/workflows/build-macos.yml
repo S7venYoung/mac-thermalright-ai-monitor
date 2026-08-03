@@ -4,7 +4,8 @@ on:
   workflow_dispatch:
   push:
     branches:
-      - main\n      - agent/apple-watch-theme
+      - main
+      - agent/apple-watch-theme
     paths:
       - "Sources/**"
       - "Package.swift"
