@@ -27,7 +27,7 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
     private var _cpu: CPUSnapshot?
     private var _mem: MemorySnapshot?
     private var _temp: TemperatureSnapshot?
-    private var _agents: AgentsSnapshot?
+    private var _agents: AgentsSnapshot?\n    private var lastAgentsSnapshot: AgentsSnapshot?
     private var _sys: SystemSnapshot?
     private var _disk: DiskSnapshot?
     private var _diskIO: DiskIOSnapshot?
@@ -309,13 +309,21 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
             slowTick += 1
             if slowTick >= 4 {
                 let temp = collector.collectTemperature()
-                let agents = agentCollector.collect()
+                // v1.3.15: pace the expensive agent/session scan while keeping
+                // system metrics and rendering responsive.
+                let saturated = cpu.total >= 80 || (cpu.perCore.max() ?? 0) >= 90
+                if ProcessScanScheduler.shared.shouldScan(saturated: saturated) {
+                    lastAgentsSnapshot = agentCollector.collect()
+                }
+                let agents = lastAgentsSnapshot
                 let disk = collector.collectDisk()
                 let diskIO = collector.collectDiskIO()
                 let network = collector.collectNetwork()
                 let sys = collector.collectSystem()
                 lock.lock()
-                _temp = temp; _agents = agents; _sys = sys
+                _temp = temp
+                if let agents { _agents = agents }
+                _sys = sys
                 _disk = disk; _diskIO = diskIO; _network = network
                 lock.unlock()
                 slowTick = 0
