@@ -1975,6 +1975,11 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
             ry += 48
         }
 
+        // Bottom: network throughput and a compact history chart, matching the
+        // original MacTR memory card. The clock/date area is intentionally omitted.
+        let ph = Layout.panelHeight
+        let dividerY = py + ph - 116
+
         // Compact clock in the former date/clock area. Keep only hours and minutes
         // so it stays readable on the narrow memory card.
         let now = Date()
@@ -1983,11 +1988,6 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
         let clock = String(format: "%02d:%02d", hour, minute)
         Draw.centeredText(ctx, clock, cx: x + pw - 92, y: dividerY - 72,
                           font: Fonts.system(42, weight: .medium), color: Color.textW)
-
-        // Bottom: network throughput and a compact history chart, matching the
-        // original MacTR memory card. The clock/date area is intentionally omitted.
-        let ph = Layout.panelHeight
-        let dividerY = py + ph - 116
         let cx0 = x + 16
         let cw = pw - 32
         Draw.line(ctx, from: CGPoint(x: cx0, y: dividerY),
