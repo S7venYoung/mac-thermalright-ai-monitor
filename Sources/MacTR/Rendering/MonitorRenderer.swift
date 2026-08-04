@@ -814,36 +814,13 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
         let tapPhase = Int(t * 5) % 2 == 0
         drawBongoCat(ctx, cx: x + 96, baseY: dividerY, tapping: agentsBusy, phase: tapPhase)
 
-        // Right of the cat: date, weekday, uptime, processes
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US")
-        let ix = x + 190
-        formatter.dateFormat = "yyyy-MM-dd"
-        Draw.text(ctx, formatter.string(from: Date()), x: ix, y: py + ph - 196,
-                  font: Fonts.system(22, weight: .semibold), color: Color.textW)
-        formatter.dateFormat = "EEEE"
-        Draw.text(ctx, formatter.string(from: Date()), x: ix, y: py + ph - 170,
-                  font: Fonts.system(16), color: Color.textS)
-
-        let iw = pw - (ix - x) - 16
-        func stat(_ label: String, _ value: String, _ sy: Int) {
-            Draw.text(ctx, label, x: ix, y: sy, font: Fonts.system(15), color: Color.textL)
-            let vf = Fonts.system(15, weight: .medium)
-            let vw = (value as NSString).size(withAttributes: [.font: vf]).width
-            Draw.text(ctx, value, x: Int(CGFloat(ix + iw) - vw), y: sy, font: vf, color: Color.textS)
-        }
-        if let sys {
-            let h = sys.uptimeSeconds / 3600, m = (sys.uptimeSeconds % 3600) / 60
-            let up = h >= 24 ? "\(h / 24)d \(h % 24)h" : "\(h)h \(m)m"
-            stat("Uptime", up, py + ph - 142)
-            stat("Procs", "\(sys.processCount)", py + ph - 120)
-        }
-
-        // Clock — big, centered across the full panel width, below the divider
-        formatter.dateFormat = "HH:mm:ss"
-        Draw.centeredText(ctx, formatter.string(from: Date()),
-                          cx: x + pw / 2, y: dividerY + 30,
-                          font: Fonts.system(66, weight: .medium), color: Color.textW)
+        // Compact clock in the right-side date area. Show hours and minutes only.
+        let now = Date()
+        let hour = Calendar.current.component(.hour, from: now)
+        let minute = Calendar.current.component(.minute, from: now)
+        let clock = String(format: "%02d:%02d", hour, minute)
+        Draw.centeredText(ctx, clock, cx: x + pw - 92, y: dividerY - 72,
+                          font: Fonts.system(42, weight: .medium), color: Color.textW)
     }
 
     // MARK: - Bongo Cat (real line-art sprite, kuroni/bongocat-osu)
