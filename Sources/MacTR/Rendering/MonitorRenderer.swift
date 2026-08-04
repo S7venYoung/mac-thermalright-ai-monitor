@@ -1987,7 +1987,7 @@ final class MonitorRenderer: FrameRenderer, @unchecked Sendable {
         let minute = Calendar.current.component(.minute, from: now)
         let clock = String(format: "%02d:%02d", hour, minute)
         Draw.centeredText(ctx, clock, cx: x + pw - 92, y: dividerY - 72,
-                          font: Fonts.system(42, weight: .medium), color: Color.textW)
+                          font: Fonts.system(64, weight: .semibold), color: Color.textW)
         let cx0 = x + 16
         let cw = pw - 32
         Draw.line(ctx, from: CGPoint(x: cx0, y: dividerY),
